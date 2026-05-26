@@ -1,0 +1,1322 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Harnes v1.0 — architecture map</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+
+<style>
+:root {
+  --bg: #0b0d12;
+  --bg-elev: #11141b;
+  --bg-card: #141822;
+  --fg: #d6dae3;
+  --fg-dim: #8a93a6;
+  --fg-faint: #5a6478;
+  --accent: #f97316;
+  --accent-soft: #f9731622;
+  --green: #5acb88;
+  --blue: #6fb6ff;
+  --purple: #b48eff;
+  --pink: #ff8ec4;
+  --yellow: #f0c674;
+  --border: #232a3a;
+  --code-bg: #0f1218;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+  font-size: 16px; line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  scroll-snap-type: y mandatory;
+  overflow-y: scroll;
+  height: 100vh;
+}
+
+.slide {
+  min-height: 100vh;
+  scroll-snap-align: start;
+  padding: 4rem 5vw;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+
+.slide-num {
+  position: absolute;
+  top: 1.5rem; right: 2rem;
+  font-family: "JetBrains Mono", ui-monospace, "Consolas", monospace;
+  font-size: 0.8rem;
+  color: var(--fg-faint);
+  letter-spacing: 0.05em;
+}
+
+.slide-tag {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-radius: 3px;
+  margin-bottom: 1rem;
+  width: fit-content;
+}
+
+h1 {
+  font-size: 2.4rem;
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  font-size: 1.4rem;
+  margin: 1.5rem 0 0.5rem;
+  font-weight: 500;
+  color: var(--fg);
+  letter-spacing: -0.005em;
+}
+
+h3 {
+  font-size: 1rem;
+  margin: 1rem 0 0.4rem;
+  color: var(--fg-dim);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+p { margin: 0 0 0.8rem; max-width: 70ch; }
+.lead { font-size: 1.15rem; color: var(--fg); max-width: 60ch; }
+.muted { color: var(--fg-dim); }
+
+code, pre {
+  font-family: "JetBrains Mono", ui-monospace, "Consolas", monospace;
+  font-size: 0.85rem;
+}
+code { background: var(--code-bg); padding: 0.1rem 0.35rem; border-radius: 3px; color: var(--blue); }
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1rem 1.2rem;
+  overflow-x: auto;
+  line-height: 1.4;
+  margin: 0.8rem 0;
+}
+pre code { background: none; padding: 0; color: var(--fg); }
+
+ul { padding-left: 1.5rem; margin: 0.4rem 0 0.8rem; max-width: 75ch; }
+li { margin: 0.25rem 0; }
+li code { font-size: 0.8rem; }
+
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 2.5rem; align-items: start; }
+.cols-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2rem; }
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1.1rem 1.3rem;
+}
+.card h3 { margin-top: 0; color: var(--accent); }
+.card-blue h3 { color: var(--blue); }
+.card-green h3 { color: var(--green); }
+.card-purple h3 { color: var(--purple); }
+.card-pink h3 { color: var(--pink); }
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.5rem 0 1rem;
+  font-size: 0.92rem;
+}
+th, td { padding: 0.45rem 0.7rem; text-align: left; border-bottom: 1px solid var(--border); }
+th { color: var(--fg-dim); font-weight: 500; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+td code { font-size: 0.78rem; }
+
+.kbd {
+  display: inline-block;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.75rem;
+  padding: 0.1rem 0.4rem;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--fg-dim);
+}
+
+.cover {
+  align-items: flex-start;
+  justify-content: center;
+  background: radial-gradient(circle at 30% 20%, #1a1f2c 0%, var(--bg) 60%);
+}
+.cover h1 { font-size: 3.4rem; line-height: 1.05; letter-spacing: -0.02em; }
+.cover .sub { font-size: 1.3rem; color: var(--fg-dim); margin-top: 0.5rem; max-width: 50ch; }
+.cover .meta { margin-top: 2.5rem; font-family: "JetBrains Mono", monospace; font-size: 0.85rem; color: var(--fg-faint); }
+.cover .meta span { display: inline-block; margin-right: 2rem; }
+.cover .meta b { color: var(--accent); font-weight: 500; }
+
+.diagram-slide {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+.mermaid {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2rem;
+  text-align: center;
+  margin-top: 1rem;
+}
+
+.tree {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  white-space: pre;
+  color: var(--fg-dim);
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1rem 1.5rem;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.tree b { color: var(--accent); font-weight: 500; }
+.tree i { color: var(--green); font-style: normal; }
+.tree em { color: var(--blue); font-style: normal; }
+.tree .note { color: var(--fg-faint); font-style: italic; }
+
+.toc {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem 1.5rem;
+  font-size: 0.85rem;
+  margin-top: 1rem;
+}
+.toc a {
+  color: var(--fg-dim);
+  text-decoration: none;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.toc a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+.toc .toc-num { color: var(--fg-faint); margin-right: 0.5rem; }
+
+.flow {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0.8rem 0; font-family: "JetBrains Mono", monospace; font-size: 0.85rem;
+}
+.flow .step {
+  padding: 0.35rem 0.7rem;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg);
+}
+.flow .step.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.flow .arrow { color: var(--fg-faint); }
+
+footer {
+  position: fixed; bottom: 1rem; left: 1.5rem;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.75rem;
+  color: var(--fg-faint);
+  pointer-events: none;
+}
+footer .kbd { pointer-events: auto; }
+</style>
+</head>
+<body>
+
+<!-- ============================================================ -->
+<!-- 1. COVER                                                     -->
+<!-- ============================================================ -->
+<section class="slide cover" id="cover">
+  <span class="slide-num">01 · cover</span>
+  <h1>Harnes v1.0</h1>
+  <div class="sub">Meta-cycle над ReAct.<br>Карта реализации после задач #31–#35.</div>
+  <div class="meta">
+    <span><b>328</b> tests passed</span>
+    <span><b>44</b> Python files</span>
+    <span><b>~8000</b> LOC</span>
+    <span><b>16</b> CLI commands</span>
+  </div>
+  <div class="meta" style="margin-top:0.5rem;">
+    <span>2026-05-26 · v1.0 closed</span>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- 2. RESEARCH FRAMING                                          -->
+<!-- ============================================================ -->
+<section class="slide" id="framing">
+  <span class="slide-num">02 · framing</span>
+  <span class="slide-tag">research</span>
+  <h1>Зачем</h1>
+  <p class="lead">
+    Универсальный автономный агент на открытом распределении задач, длинном горизонте,
+    с надёжностью как first-class метрикой.
+  </p>
+
+  <div class="cols" style="margin-top:1.5rem;">
+    <div>
+      <h2>Пять осей</h2>
+      <ul>
+        <li><b>Универсальность</b> — широкое распределение задач</li>
+        <li><b>Автономность</b> — степень self-direction</li>
+        <li><b>Агентность</b> — длительная целенаправленность</li>
+        <li><b>Открытость</b> — данные не из training/dev</li>
+        <li><b>Горизонт</b> — multi-step / multi-session</li>
+      </ul>
+    </div>
+    <div>
+      <h2>Главный артефакт</h2>
+      <p>Не «продукт», а <b>research-инструмент</b>: каждое улучшение должно быть <em>измеримо</em> на held-out наборе с reliability метриками.</p>
+      <h3>В v1.0 это материализовалось как</h3>
+      <ul class="muted">
+        <li>#31 — held-out flag</li>
+        <li>#32 — pass@k, p95, entropy</li>
+        <li>#33 — self-generated goals</li>
+        <li>#34 — recall first-class</li>
+        <li>#35 — journal + recovery</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- 3. TOC                                                       -->
+<!-- ============================================================ -->
+<section class="slide" id="toc">
+  <span class="slide-num">03 · toc</span>
+  <span class="slide-tag">map</span>
+  <h1>Маршрут</h1>
+  <p class="muted">Ниже — части системы. <span class="kbd">↓</span> прокрутка. <span class="kbd">G</span> к концу. <span class="kbd">Home</span> наверх.</p>
+  <div class="toc">
+    <a href="#diagram"><span class="toc-num">04</span>Карта компонентов</a>
+    <a href="#tree"><span class="toc-num">05</span>Файловое дерево</a>
+    <a href="#config"><span class="toc-num">06</span>Конфигурация</a>
+    <a href="#llm"><span class="toc-num">07</span>LLM-слой</a>
+    <a href="#memory"><span class="toc-num">08</span>Memory-слой</a>
+    <a href="#tools"><span class="toc-num">09</span>Tool-слой</a>
+    <a href="#goals"><span class="toc-num">10</span>Goals</a>
+    <a href="#skills"><span class="toc-num">11</span>Skills</a>
+    <a href="#react"><span class="toc-num">12</span>ReAct-цикл</a>
+    <a href="#metacycle"><span class="toc-num">13</span>Meta-cycle</a>
+    <a href="#standing"><span class="toc-num">14</span>Standing-goals</a>
+    <a href="#reflect"><span class="toc-num">15</span>Reflect</a>
+    <a href="#recall"><span class="toc-num">16</span>Recall (v1.0 #34)</a>
+    <a href="#eval"><span class="toc-num">17</span>Eval harness</a>
+    <a href="#reliability"><span class="toc-num">18</span>Reliability (v1.0 #31+#32)</a>
+    <a href="#journal"><span class="toc-num">19</span>Journal (v1.0 #35)</a>
+    <a href="#cli"><span class="toc-num">20</span>CLI</a>
+    <a href="#history"><span class="toc-num">21</span>v0 → v1.0</a>
+    <a href="#next"><span class="toc-num">22</span>Что дальше</a>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- 4. ARCHITECTURE DIAGRAM                                      -->
+<!-- ============================================================ -->
+<section class="slide diagram-slide" id="diagram">
+  <span class="slide-num">04 · diagram</span>
+  <span class="slide-tag">architecture</span>
+  <h1>Карта компонентов</h1>
+  <p class="muted">Один тик метацикла проходит сверху вниз. <span style="color:var(--accent);">оранжевые</span> блоки — v1.0 добавления.</p>
+
+  <div class="mermaid">
+flowchart TB
+  subgraph Operator["operator (CLI) — оператор-канал"]
+    CLI["harnes.operator.cli\n16 commands"]
+  end
+
+  subgraph Meta["metacycle — driver"]
+    Tick["tick.run_tick\n9 stages"]
+    Sense["sense"]
+    Attend["attend"]
+    Arbitr["goal_arbitration"]
+    RecallS["recall_stage"]
+    React["react_loop"]
+    Verify["verify"]
+    World["world_update"]
+    ReflectS["reflect (FAIL only)"]
+    Store["store"]
+    Standing["standing.policy"]
+    Journal["journal.TickJournal\nv1.0 #35"]:::v1
+  end
+
+  subgraph React["react/ — internal loop"]
+    Loop["run_react\nThought↔Action↔Obs"]
+    Critic["critic\non irreversible"]
+  end
+
+  subgraph Reflect["metacycle/reflect"]
+    Fail["failure_analysis\n→ skill bump"]
+    Inq["inquiry_from_failure\nv1.0 #33"]:::v1
+  end
+
+  subgraph Tools["tools/ — capabilities"]
+    Registry["ToolRegistry"]
+    IO["builtin/io\nread/write_file"]
+    Rec["builtin/recall\nrecall_memory v1.0 #34"]:::v1
+    MT["eval/multi_turn\ntask-scoped recall"]
+  end
+
+  subgraph Goals["goals/"]
+    GSchema["schema\n5 classes × 5 predicates"]
+    GStore["GoalRepository\nSQLite"]
+  end
+
+  subgraph Skills["skills/"]
+    SBundle["YAML bundles\ngit-versioned"]
+    SReg["SkillRegistry\n+ metrics SQLite"]
+  end
+
+  subgraph Memory["memory/ — 4 backends"]
+    Ep["episodic\nLanceDB"]
+    Sem["semantic\nQdrant"]
+    Wld["world\nGraphiti + Neo4j"]
+    Router["MemoryRouter\nunified recall API"]
+  end
+
+  subgraph Eval["eval/"]
+    Harness["harness\nrun_evaluation"]
+    Adapter["adapters/MAB\nHF datasets"]
+    History["history\nEvalHistoryStore\n+ reliability metrics v1.0 #31+#32"]:::v1
+    MultiTurn["multi_turn\nchunk injection"]
+  end
+
+  subgraph LLM["llm/"]
+    Client["client\nLiteLLM tier dispatcher"]
+    Embed["embeddings\nfastembed"]
+  end
+
+  CLI -->|enter-goal/run-loop| Tick
+  CLI -->|run-eval| Harness
+  CLI -->|tick-journal| Journal
+
+  Tick --> Sense --> Attend --> Standing
+  Attend --> Arbitr --> RecallS --> React
+  React --> Verify --> World --> Store
+  Verify -->|FAIL| ReflectS
+  ReflectS --> Fail
+  ReflectS --> Inq
+
+  React -.calls.-> Loop
+  Loop --> Critic
+  Loop -->|tool calls| Registry
+  Registry --> IO
+  Registry --> Rec
+  Rec -->|router.recall| Router
+
+  RecallS --> Router
+  Router --> Ep & Sem & Wld
+
+  Arbitr --> GStore
+  Inq --> GStore
+  Standing --> GStore
+
+  Fail --> SReg
+  Loop -->|skill| SReg
+  SReg --> SBundle
+
+  Loop -->|llm.call| Client
+  Fail -->|llm.call| Client
+  Inq -->|llm.call| Client
+  Router -->|embed| Embed
+
+  Harness --> Adapter
+  Harness --> MultiTurn
+  Harness -->|persist| History
+
+  Tick -.events.-> Journal
+
+  classDef v1 fill:#f9731622,stroke:#f97316,stroke-width:2px,color:#f97316
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- 5. FILE TREE                                                 -->
+<!-- ============================================================ -->
+<section class="slide" id="tree">
+  <span class="slide-num">05 · tree</span>
+  <span class="slide-tag">map</span>
+  <h1>Файловое дерево</h1>
+<div class="tree">src/harnes/
+├── <b>config.py</b>                       <span class="note"># pydantic-settings, env > YAML > defaults</span>
+├── <b>llm/</b>
+│   ├── client.py                   <span class="note"># LiteLLM tier dispatcher → ll-router</span>
+│   └── embeddings.py               <span class="note"># fastembed fallback chain</span>
+├── <b>memory/</b>
+│   ├── schema.py                   <span class="note"># MemoryBundle, EpisodicRecord, SemanticRecord, WorldNode</span>
+│   ├── episodic.py                 <span class="note"># LanceDB store: trajectories + steps</span>
+│   ├── semantic.py                 <span class="note"># Qdrant: embedding search</span>
+│   ├── world.py                    <span class="note"># Graphiti + Neo4j; persistent async loop</span>
+│   └── router.py                   <span class="note"># unified recall(query, types, k)</span>
+├── <b>goals/</b>
+│   ├── schema.py                   <span class="note"># Goal, 5 classes, 5 predicates discr-union</span>
+│   └── store.py                    <span class="note"># SQLite GoalRepository</span>
+├── <b>skills/</b>
+│   ├── schema.py                   <span class="note"># Skill, allowed_tools, prompt_template</span>
+│   └── store.py                    <span class="note"># YAML + git auto-commit/tag + metrics</span>
+├── <b>tools/</b>
+│   ├── schema.py                   <span class="note"># Tool, irreversibility, RetryPolicy</span>
+│   ├── registry.py                 <span class="note"># pipeline: validate → invoke → classify</span>
+│   └── builtin/
+│       ├── io.py                   <span class="note"># read_file, write_file</span>
+│       └── <em>recall.py</em>                <span class="note"># v1.0 #34 — recall_memory(router)</span>
+├── <b>react/</b>
+│   ├── schema.py                   <span class="note"># Step types (thought/action/obs/...), Trajectory</span>
+│   ├── loop.py                     <span class="note"># run_react Classic loop</span>
+│   └── critic.py                   <span class="note"># на irreversible actions</span>
+├── <b>metacycle/</b>
+│   ├── schema.py                   <span class="note"># ObservationBundle, FocusFrame, Verdict</span>
+│   ├── tick.py                     <span class="note"># run_tick: sense→attend→...→store</span>
+│   ├── standing.py                 <span class="note"># policies + bootstrap; spawn task-goals</span>
+│   ├── reflect.py                  <span class="note"># failure_analysis + inquiry_from_failure (v1.0 #33)</span>
+│   ├── verifiers.py                <span class="note"># 5 predicates: structural/judge/state_change/composite/external</span>
+│   └── <em>journal.py</em>                  <span class="note"># v1.0 #35 — tick_events + tick_snapshots</span>
+├── <b>eval/</b>
+│   ├── harness.py                  <span class="note"># run_evaluation, PerTaskResult, EvalResult</span>
+│   ├── history.py                  <span class="note"># EvalRunRecord + reliability metrics (v1.0 #31+#32)</span>
+│   ├── multi_turn.py               <span class="note"># chunker + InMemoryChunkStore (v0.3 #27)</span>
+│   └── adapters/
+│       └── memory_agent_bench.py   <span class="note"># MAB HF loader + verify</span>
+├── <b>operator/</b>
+│   └── cli.py                      <span class="note"># 16 Click commands</span>
+└── <b>telemetry/</b>                      <span class="note"># structlog setup</span>
+
+skills/
+└── general.yaml                    <span class="note"># default skill — recall_memory added in v1.0 #34</span>
+
+config/
+└── default.yaml                    <span class="note"># overridable via env (LLM__MODEL=, METACYCLE__JOURNAL_DB_PATH=)</span>
+
+tests/                              <span class="note"># 25 test modules, 328 passing</span>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<!-- 6. CONFIG                                                    -->
+<!-- ============================================================ -->
+<section class="slide" id="config">
+  <span class="slide-num">06 · config</span>
+  <span class="slide-tag">infra</span>
+  <h1>Конфигурация</h1>
+  <p>pydantic-settings; precedence <b>env</b> &gt; YAML init kwargs &gt; .env &gt; defaults на BaseModel.</p>
+
+  <div class="cols">
+    <div>
+      <h2>Секции</h2>
+      <ul>
+        <li><code>llm</code> — api_base, model, tiers (light/main/heavy), timeout</li>
+        <li><code>memory</code> — lancedb_path, qdrant_url, neo4j_*</li>
+        <li><code>goal_store</code> — sqlite_path</li>
+        <li><code>procedural_store</code> — bundles_dir, sqlite_path, git_auto_*</li>
+        <li><code>embeddings</code> — use_server, model</li>
+        <li><code>logging</code> — level, trace_log_path</li>
+        <li><code>tick</code> — min_interval_seconds, budget_default_tokens</li>
+        <li><code>eval</code> — history_db_path</li>
+        <li><code>metacycle</code> — journal_db_path, snapshot_every_ticks <span style="color:var(--accent);">[v1.0 #35]</span></li>
+      </ul>
+    </div>
+    <div>
+      <h2>Customised sources</h2>
+      <pre><code>@classmethod
+def settings_customise_sources(...):
+    """Env > YAML (init kwargs) > dotenv > defaults.
+
+    Без этого pydantic-settings ставит init первым
+    и YAML перевешивает env-переменные.
+    """
+    return (env_settings, init_settings,
+            dotenv_settings, file_secret_settings)</code></pre>
+
+      <h3>Пример override через env</h3>
+      <pre><code>LLM__MODEL=qwen-35b \
+EVAL__HISTORY_DB_PATH=/tmp/e.db \
+METACYCLE__JOURNAL_DB_PATH=/tmp/j.db \
+python -m harnes.operator run-loop --real</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- 7. LLM                                                       -->
+<!-- ============================================================ -->
+<section class="slide" id="llm">
+  <span class="slide-num">07 · llm</span>
+  <span class="slide-tag">io</span>
+  <h1>LLM-слой</h1>
+
+  <div class="cols">
+    <div>
+      <h2>llm/client.py</h2>
+      <p>Тонкая обёртка над LiteLLM, OpenAI-compatible. Все вызовы идут в <code>ll-router</code> на <code>192.168.0.111:8000</code>.</p>
+      <h3>Tier dispatcher</h3>
+      <pre><code>call(messages, tier="light"|"main"|"heavy", ...)
+  └─ _resolve_model(tier) → settings.llm.tiers[tier]
+  └─ litellm.completion(model=..., ...)</code></pre>
+      <p>В dev все три tier'а на <code>gemma-26b-a4b</code> (MoE 4B active). В проде main → gemma-31b-mtp, heavy → qwen-35b.</p>
+    </div>
+    <div>
+      <h2>llm/embeddings.py</h2>
+      <p>fastembed с fallback chain (curated list ONNX моделей):</p>
+      <ul>
+        <li>BAAI/bge-m3 → недоступно</li>
+        <li>paraphrase-multilingual-mpnet-base-v2 — рабочий fallback</li>
+      </ul>
+      <h3>Где используется</h3>
+      <ul>
+        <li><code>memory.semantic</code> — embedding query / write</li>
+        <li><code>eval.multi_turn.InMemoryChunkStore</code> — chunks @ task-scope</li>
+        <li>Опционально <code>/v1/embeddings</code> на ll-router (когда появится)</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Использование по tier'ам</h3>
+  <table>
+    <tr><th>Tier</th><th>Кто вызывает</th><th>Назначение</th></tr>
+    <tr><td><code>light</code></td><td>attend, critic, judge verify</td><td>быстрые decisions / scoring</td></tr>
+    <tr><td><code>main</code></td><td>thought, action, reflect</td><td>основная работа</td></tr>
+    <tr><td><code>heavy</code></td><td>reflect (опционально)</td><td>глубокий анализ failure</td></tr>
+  </table>
+</section>
+
+<!-- ============================================================ -->
+<!-- 8. MEMORY                                                    -->
+<!-- ============================================================ -->
+<section class="slide" id="memory">
+  <span class="slide-num">08 · memory</span>
+  <span class="slide-tag">storage</span>
+  <h1>Memory-слой</h1>
+  <p>Четыре backend'а под одним <code>MemoryRouter.recall(query, types, k)</code>.</p>
+
+  <div class="cols-3">
+    <div class="card card-blue">
+      <h3>episodic</h3>
+      <p><b>LanceDB</b> (file-based vector store)</p>
+      <p>Trajectory steps. <code>recent_steps(limit)</code> + ANN. Каждый шаг ReAct тут — на нём reflect анализирует прошлое.</p>
+    </div>
+    <div class="card card-purple">
+      <h3>semantic</h3>
+      <p><b>Qdrant</b> (vector DB)</p>
+      <p>Pre-encoded facts. Embedding-based поиск. В v0 не наполняется, готов к use.</p>
+    </div>
+    <div class="card card-green">
+      <h3>world</h3>
+      <p><b>Graphiti + Neo4j</b> (temporal KG)</p>
+      <p><code>add_episode</code> при store-стейдже. <code>search(query, valid_at)</code> возвращает узлы с свойствами.</p>
+    </div>
+  </div>
+
+  <h2 style="margin-top:1.5rem;">MemoryRouter</h2>
+  <p>Координатор. На каждом recall — параллельный запрос к доступным backends, агрегация в <code>MemoryBundle</code>.</p>
+  <pre><code>class MemoryBundle:
+    episodic: list[EpisodicRecord]
+    semantic: list[SemanticRecord]
+    world: list[WorldNode]
+
+router.recall(query, types=None, k=10)  # None = all available</code></pre>
+
+  <h3>Болевые точки решены</h3>
+  <ul class="muted">
+    <li>Graphiti default <code>OpenAIClient</code> использует <code>responses.parse</code> — не работает с ll-router → переключились на <code>OpenAIGenericClient</code> (chat.completions)</li>
+    <li>Neo4j driver 15s+ timeout → 2s TCP precheck (<code>_bolt_reachable</code>) + broken-cache</li>
+    <li>asyncio.run() ломает Graphiti driver → persistent event loop</li>
+  </ul>
+</section>
+
+<!-- ============================================================ -->
+<!-- 9. TOOLS                                                     -->
+<!-- ============================================================ -->
+<section class="slide" id="tools">
+  <span class="slide-num">09 · tools</span>
+  <span class="slide-tag">capability</span>
+  <h1>Tool-слой</h1>
+
+  <div class="cols">
+    <div>
+      <h2>Pipeline (registry.invoke)</h2>
+      <div class="flow">
+        <span class="step">raw_args</span>
+        <span class="arrow">→</span>
+        <span class="step">validate(input_schema)</span>
+        <span class="arrow">→</span>
+        <span class="step">resolve_irreversibility</span>
+      </div>
+      <div class="flow">
+        <span class="step">invoke(impl)</span>
+        <span class="arrow">→</span>
+        <span class="step">classify(outcome)</span>
+        <span class="arrow">→</span>
+        <span class="step">retry?</span>
+        <span class="arrow">→</span>
+        <span class="step">validate(output_schema)</span>
+        <span class="arrow">→</span>
+        <span class="step active">ObservationStep</span>
+      </div>
+      <p>7 outcomes: <code>success / tool_error / schema_error / timeout / permission_denied / malformed_output / semantic_error</code></p>
+    </div>
+    <div>
+      <h2>Irreversibility</h2>
+      <p>3 уровня: <code>NEVER</code> / <code>CONDITIONAL</code> / <code>ALWAYS</code>. Skill может override через <code>irreversibility_overrides[tool_id]</code>. Conditional — через registered predicate (<code>@register_predicate</code>).</p>
+      <p>Тулы с <code>is_irreversible=True</code> идут через критик в <code>react/critic.py</code> перед исполнением.</p>
+    </div>
+  </div>
+
+  <h2>Builtin тулы</h2>
+  <table>
+    <tr><th>id</th><th>файл</th><th>назначение</th></tr>
+    <tr><td><code>read_file</code></td><td><code>builtin/io.py</code></td><td>read FS UTF-8, опциональный max_bytes</td></tr>
+    <tr><td><code>write_file</code></td><td><code>builtin/io.py</code></td><td>conditional: irreversible если файл существует</td></tr>
+    <tr><td style="color:var(--accent);"><code>recall_memory</code></td><td style="color:var(--accent);"><code>builtin/recall.py</code></td><td style="color:var(--accent);">v1.0 #34 — поиск по episodic+semantic+world через MemoryRouter</td></tr>
+  </table>
+
+  <h3>build_runtime_registry(router) — v1.0 #34</h3>
+  <p>Заменяет глобальный <code>get_registry()</code> в run-loop / run-eval --real. Регистрирует <code>read_file</code> + <code>write_file</code> + <code>recall_memory(router)</code>.</p>
+</section>
+
+<!-- ============================================================ -->
+<!-- 10. GOALS                                                    -->
+<!-- ============================================================ -->
+<section class="slide" id="goals">
+  <span class="slide-num">10 · goals</span>
+  <span class="slide-tag">domain</span>
+  <h1>Goals subsystem</h1>
+
+  <div class="cols">
+    <div>
+      <h2>5 классов</h2>
+      <ul>
+        <li><b>task</b> — discrete достижение состояния</li>
+        <li><b>inquiry</b> — узнать что-то (incl. self-generated)</li>
+        <li><b>maintenance</b> — поддержание состояния</li>
+        <li><b>standing</b> — postoянная политика (всегда ACTIVE)</li>
+        <li><b>practice</b> — освоить навык</li>
+      </ul>
+
+      <h2>5 предикатов успеха</h2>
+      <ul>
+        <li><b>structural</b> — JSON Schema над final_state</li>
+        <li><b>state_change</b> — check_tool возвращает expected</li>
+        <li><b>judge</b> — LLM судит по criterion</li>
+        <li><b>composite</b> — ALL/CUSTOM aggregation над детьми</li>
+        <li><b>external</b> — UNDETERMINED, ждём sense-сигнал</li>
+      </ul>
+    </div>
+    <div>
+      <h2>Goal schema</h2>
+      <pre><code>class Goal(BaseModel):
+    id: UUID
+    parent_id: UUID | None
+    depends_on: list[UUID]
+    description: str
+    goal_class: GoalClass    # 5 enum
+    predicate_of_success: PredicateOfSuccess  # discriminated
+    priority: int
+    deadline: datetime | None
+    status: GoalStatus       # 7 states
+    budget: Budget
+    allowed_skills: list[str]
+    origin: Origin           # operator | decomposition | self
+    origin_subtype: OriginSubtype | None
+    metadata: dict</code></pre>
+
+      <h3>GoalRepository (SQLite)</h3>
+      <p><code>create / get / update / list_by_status / list_by_class / list_children / approve / reject / register_pending_verification</code></p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- 11. SKILLS                                                   -->
+<!-- ============================================================ -->
+<section class="slide" id="skills">
+  <span class="slide-num">11 · skills</span>
+  <span class="slide-tag">procedural</span>
+  <h1>Skills subsystem</h1>
+  <p>Скилл — это <em>как</em> делать что-то. Состоит из prompt_template, allowed_tools, irreversibility overrides, и few-shot examples.</p>
+
+  <div class="cols">
+    <div>
+      <h2>Storage</h2>
+      <ul>
+        <li><b>YAML bundles</b> в <code>skills/</code> — один файл на скилл</li>
+        <li><b>SQLite</b> — invocations table для метрик (success_rate, avg_cost, failure_modes)</li>
+        <li><b>Git</b> — auto-commit + auto-tag <code>skill/{id}/v{version}</code> (v0.3 #30)</li>
+      </ul>
+      <h3>Версионирование (v0.3 #30)</h3>
+      <pre><code>SkillRegistry(bundles_dir,
+              metrics_db,
+              git_auto_commit=True,
+              git_auto_tag=True)
+  └─ .save(skill)
+      ├─ write YAML
+      ├─ git add &lt;only this file&gt;
+      ├─ git commit (skip if no diff)
+      └─ git tag skill/general/v0.0.2</code></pre>
+    </div>
+    <div>
+      <h2>general.yaml v0.0.2 (v1.0 #34)</h2>
+      <pre><code>id: general
+version: 0.0.2
+parent_version_id: 0.0.1
+prompt_template: |
+  You are an autonomous agent...
+  Before guessing, consider calling
+  recall_memory to ground your answer...
+allowed_tools:
+  - read_file
+  - write_file
+  - recall_memory
+applicable_goal_classes:
+  - task
+  - inquiry
+  - maintenance</code></pre>
+      <h3>Linkage</h3>
+      <ul>
+        <li>Каждый ReAct запуск пишет <code>trajectory.metadata.skill_id / skill_version</code></li>
+        <li>reflect.failure_analysis читает skill, bump'ит patch version</li>
+        <li>eval-history snapshot'ит <code>skill_versions: {id: version}</code></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- 12. REACT                                                    -->
+<!-- ============================================================ -->
+<section class="slide" id="react">
+  <span class="slide-num">12 · react</span>
+  <span class="slide-tag">inner loop</span>
+  <h1>ReAct internal loop</h1>
+
+  <h2>Step types (discriminated union)</h2>
+  <div class="flow">
+    <span class="step">ThoughtStep</span>
+    <span class="step">PlanStep</span>
+    <span class="step">ActionStep</span>
+    <span class="step">ObservationStep</span>
+    <span class="step">CritiqueStep</span>
+    <span class="step">RetryNoteStep</span>
+  </div>
+
+  <h2>run_react (Classic)</h2>
+  <pre><code>for step in range(max_steps):
+    if total_tokens >= budget_tokens:
+        traj.status = BUDGET_EXCEEDED; break
+
+    thought = _thought_call(system_prompt, traj, llm)   # tier=main
+    action  = _action_call(system_prompt, traj, llm)
+    if action is None:                  # parse failed
+        append MALFORMED_OUTPUT obs; continue
+
+    action.is_irreversible = registry.resolve_irreversibility(...)
+
+    if action.tool_id == "finish":
+        traj.status = SUCCESS; traj.final_state = action.args; break
+
+    if with_critic and action.is_irreversible:
+        critique = critique_action(action, traj, goal)   # tier=light
+        if critique.verdict == REJECT:
+            critic_rejections += 1
+            if critic_rejections > max: traj.status = FAILURE; break
+            continue   # skip execute, retry thought
+
+    obs = registry.invoke(action.tool_id, action.args, skill=skill)
+    if _detect_loop(traj): traj.status = FAILURE; break
+else:
+    traj.status = FAILURE   # max_steps hit</code></pre>
+
+  <p>Trajectory несёт <code>started_at / ended_at / total_cost</code> + полный список Step'ов. Это сериализуется в episodic и читается reflect'ом.</p>
+</section>
+
+<!-- ============================================================ -->
+<!-- 13. META-CYCLE                                               -->
+<!-- ============================================================ -->
+<section class="slide" id="metacycle">
+  <span class="slide-num">13 · metacycle</span>
+  <span class="slide-tag">driver</span>
+  <h1>Meta-cycle — 9 этапов</h1>
+
+  <div class="flow">
+    <span class="step">sense</span>
+    <span class="arrow">→</span>
+    <span class="step">attend</span>
+    <span class="arrow">→</span>
+    <span class="step">goal_arbitration</span>
+    <span class="arrow">→</span>
+    <span class="step">recall</span>
+  </div>
+  <div class="flow">
+    <span class="step">react_loop</span>
+    <span class="arrow">→</span>
+    <span class="step">verify</span>
+    <span class="arrow">→</span>
+    <span class="step">world_update</span>
+    <span class="arrow">→</span>
+    <span class="step">[reflect]</span>
+    <span class="arrow">→</span>
+    <span class="step">store</span>
+  </div>
+
+  <div class="cols" style="margin-top:1.5rem;">
+    <div>
+      <h2>TickState (dataclass)</h2>
+      <pre><code>tick_id: int
+observations: ObservationBundle
+focus: FocusFrame | None
+active_goal: Goal | None
+memory: MemoryBundle | None
+trajectory: Trajectory | None
+verdict: Verdict | None
+idle: bool
+spawned_goals: list[Goal]  # v1.0 #33</code></pre>
+    </div>
+    <div>
+      <h2>Verifiers (per-predicate dispatch)</h2>
+      <ul>
+        <li><b>structural</b> — jsonschema.validate</li>
+        <li><b>judge</b> — LLM judge (tier=light)</li>
+        <li><b>state_change</b> — invoke check_tool, compare expected_outcome</li>
+        <li><b>composite</b> — ALL/CUSTOM по детям (требует goal_repo)</li>
+        <li><b>external</b> — UNDETERMINED, ждём signal</li>
+      </ul>
+      <p class="muted">Verdict: <code>SUCCESS / PARTIAL / FAIL / UNDETERMINED</code> + reasons + evidence.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- 14. STANDING / SELF-GENERATION                              -->
+<!-- ============================================================ -->
+<section class="slide" id="standing">
+  <span class="slide-num">14 · standing</span>
+  <span class="slide-tag">autonomy</span>
+  <h1>Standing-goals + self-generated</h1>
+
+  <div class="cols">
+    <div>
+      <h2>Standing policies</h2>
+      <p>Постоянно активные политики. На каждом тике <code>check_standing_goals</code> вызывает каждую policy; если condition triggered — spawn child goal с <code>parent_id=standing.id</code>.</p>
+      <h3>Bootstrap (v0.1)</h3>
+      <ul>
+        <li><code>on_alert_observation</code> — fires при urgency≥0.9</li>
+        <li><code>on_prev_verify_failure</code> — fires при FAILED цели с priority≥threshold</li>
+      </ul>
+      <p>Дедуп: <code>_has_active_child</code> — не spawn'им если предыдущий ещё PENDING/ACTIVE.</p>
+    </div>
+    <div>
+      <h2>v1.0 #33 — inquiry from failure</h2>
+      <p>Новый второй источник self-spawn. На <code>verify=FAIL</code> reflect-LLM анализирует траекторию и решает, есть ли concrete knowledge-gap, который стоит закрыть отдельным inquiry.</p>
+      <pre><code>inquiry = Goal(
+    description="Find out how X works",
+    goal_class=GoalClass.INQUIRY,
+    origin=Origin.SELF,
+    origin_subtype=OriginSubtype.LEARNING,
+    parent_id=goal.id,
+)</code></pre>
+      <p>Falls open: при ошибках LLM → None, тик не падает.</p>
+    </div>
+  </div>
+
+  <h2 style="margin-top:1.5rem;">Self-generation rate</h2>
+  <p>В <code>run-loop</code> CLI считается:</p>
+  <pre><code>self_gen_rate = ticks_with_self_spawn / total_ticks
+  → "Self-generated: 12 goals in 8/47 ticks (17.0% self_generation_rate)"</code></pre>
+  <p class="muted">Это фундаментальная метрика автономии — насколько часто агент сам себе ставит цели без оператора.</p>
+</section>
+
+<!-- ============================================================ -->
+<!-- 15. REFLECT                                                  -->
+<!-- ============================================================ -->
+<section class="slide" id="reflect">
+  <span class="slide-num">15 · reflect</span>
+  <span class="slide-tag">self-improve</span>
+  <h1>Reflect — два режима на FAIL</h1>
+
+  <div class="cols">
+    <div>
+      <h2>failure_analysis (v0.2)</h2>
+      <p>LLM (tier=main) анализирует:</p>
+      <ul>
+        <li>Что пошло не так?</li>
+        <li>Поможет ли изменение prompt_template?</li>
+        <li>Если да — full updated template.</li>
+      </ul>
+      <p>SkillRegistry.save новой версии с bump patch (<code>0.0.1 → 0.0.2</code>). Старая остаётся, parent_version_id зафиксирован. Git auto-commit (если включён) делает атомарный коммит.</p>
+      <p class="muted">Sanity: {goal_description} и {tools_list} placeholders должны сохраниться.</p>
+    </div>
+    <div>
+      <h2>inquiry_from_failure (v1.0 #33)</h2>
+      <p>LLM решает: «есть ли в провале concrete knowledge-gap?» (factual / API / concept).</p>
+      <p><b>Консервативно</b> — should_spawn_inquiry должен быть явный true, description ≥ 8 chars, иначе None.</p>
+      <p>Запускается <em>параллельно</em> с failure_analysis — два независимых выхода: bump skill prompt + spawn inquiry-goal. Падение одного не блокирует другой.</p>
+    </div>
+  </div>
+
+  <h3>Когда триггерится</h3>
+  <pre><code>if verdict.status == FAIL and trajectory and active_goal:
+    _maybe_reflect_failure(state, skill_registry, goal_repo)
+    # → возможный bump skill + возможный spawn inquiry</code></pre>
+</section>
+
+<!-- ============================================================ -->
+<!-- 16. RECALL (v1.0 #34)                                        -->
+<!-- ============================================================ -->
+<section class="slide" id="recall">
+  <span class="slide-num">16 · recall</span>
+  <span class="slide-tag" style="background:#f9731622; color:#f97316;">v1.0 #34</span>
+  <h1>Recall как first-class шаг</h1>
+
+  <p>До v1.0: Graphiti+Qdrant+LanceDB были подключены, но ReAct-цикл их активно не использовал — кроме task-scoped recall в multi-turn injection для MAB.</p>
+
+  <div class="mermaid">
+flowchart LR
+  Agent[ReAct loop\nthought→action] -->|tool_id=recall_memory| Reg[ToolRegistry]
+  Reg -->|invoke| RecImpl[recall.py\nrecall_impl]
+  RecImpl -->|router.recall query types k| Router[MemoryRouter]
+  Router -->|recent_steps| Ep[(LanceDB\nepisodic)]
+  Router -->|embed + search| Sem[(Qdrant\nsemantic)]
+  Router -->|graphiti.search| Wld[(Neo4j\nworld KG)]
+  Ep --> Bundle[MemoryBundle]
+  Sem --> Bundle
+  Wld --> Bundle
+  Bundle --> Result[RecallResult\nepisodic semantic world]
+  Result -->|ObservationStep| Agent
+  </div>
+
+  <div class="cols" style="margin-top:1.5rem;">
+    <div>
+      <h2>Что добавлено</h2>
+      <ul>
+        <li><code>tools/builtin/recall.py</code> — <code>make_recall_tool_for_router(router)</code> + <code>build_runtime_registry(router)</code></li>
+        <li><code>general.yaml</code> bump до 0.0.2 — <code>recall_memory</code> в allowed_tools</li>
+        <li><code>run-loop --real</code> и <code>run-eval --real</code> используют <code>build_runtime_registry(router)</code></li>
+      </ul>
+    </div>
+    <div>
+      <h2>Falls open</h2>
+      <ul>
+        <li>Любой backend может быть <code>None</code> — пустой блок в Bundle</li>
+        <li>Router exception → пустой RecallResult, не падаем</li>
+        <li>Unknown types в args → отфильтрованы</li>
+      </ul>
+      <p class="muted">15 тестов в <code>test_recall_tool.py</code>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- 17. EVAL HARNESS                                             -->
+<!-- ============================================================ -->
+<section class="slide" id="eval">
+  <span class="slide-num">17 · eval</span>
+  <span class="slide-tag">measurement</span>
+  <h1>Eval harness</h1>
+
+  <div class="cols">
+    <div>
+      <h2>BenchmarkAdapter (Protocol)</h2>
+      <pre><code>class BenchmarkAdapter(Protocol):
+    name: str
+
+    def tasks(self) -> Iterable[(task_id, Goal)]:
+        ...
+
+    def verify(self, task_id, trajectory)
+            -> (success: bool, failure_mode: str | None):
+        ...</code></pre>
+
+      <h2>run_evaluation</h2>
+      <p>Берёт adapter + <code>agent_run(goal) → Trajectory</code>. Для каждой task запускает агента <code>repeat_k</code> раз, верифицирует, латентность фиксируется.</p>
+    </div>
+    <div>
+      <h2>MemoryAgentBench adapter</h2>
+      <p>HF датасет <code>ai-hyz/MemoryAgentBench</code> (ICLR 2026). 4 splits:</p>
+      <ul>
+        <li><b>Accurate_Retrieval</b> — substring_exact_match</li>
+        <li><b>Test_Time_Learning</b> — exact_match</li>
+        <li><b>Long_Range_Understanding</b> — exact_match</li>
+        <li><b>Conflict_Resolution</b> — substring_exact_match</li>
+      </ul>
+      <h3>Multi-turn chunk injection (v0.3 #27)</h3>
+      <p>Длинные context'ы (&gt;4000 chars) режутся на ~2000-char chunks, кладутся в <code>InMemoryChunkStore</code>, агент получает task-scoped <code>recall_memory</code>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- 18. RELIABILITY (v1.0 #31+#32)                              -->
+<!-- ============================================================ -->
+<section class="slide" id="reliability">
+  <span class="slide-num">18 · reliability</span>
+  <span class="slide-tag" style="background:#f9731622; color:#f97316;">v1.0 #31+#32</span>
+  <h1>Held-out + reliability metrics</h1>
+
+  <div class="cols">
+    <div>
+      <h2>EvalRunRecord (расширен)</h2>
+      <pre><code>id, adapter_name, started_at, ended_at
+total_tasks, success_count, success_rate
+avg_steps, avg_cost_tokens
+failure_modes_json
+git_sha, skill_versions_json, config_hash
+notes
+
+# v1.0 #31:
+eval_set: str           # 'mab_dev_ar', 'mab_holdout_lru_v1'
+eval_set_hash: str      # sha256[:16] sorted task_ids
+held_out: bool          # research hygiene flag
+
+# v1.0 #32:
+repeat_k: int
+pass_at_k: float        # at-least-one success per task
+stable_at_k: float      # same canonical answer across k
+p50_steps, p95_steps
+p50_latency_s, p95_latency_s
+failure_entropy: float  # Shannon bits</code></pre>
+    </div>
+    <div>
+      <h2>Hygiene rules</h2>
+      <ul>
+        <li><code>eval-history</code> по дефолту <b>скрывает</b> held-out runs — нельзя случайно посмотреть.</li>
+        <li><code>--include-held-out</code> только для релизного замера.</li>
+        <li><code>eval-compare</code> ругается при mismatch:
+          <ul>
+            <li>разные <code>adapter_name</code></li>
+            <li>разные <code>eval_set</code></li>
+            <li><b>одинаковый ярлык, но разный <code>eval_set_hash</code></b> ⚠️</li>
+            <li>разные <code>repeat_k</code> / <code>held_out</code></li>
+          </ul>
+        </li>
+      </ul>
+
+      <h3>Миграция</h3>
+      <p><code>_migrate_v1_0()</code> добавляет столбцы через <code>ALTER TABLE</code> на старой БД — eval-history с v0.3 сохраняется.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- 19. JOURNAL (v1.0 #35)                                       -->
+<!-- ============================================================ -->
+<section class="slide" id="journal">
+  <span class="slide-num">19 · journal</span>
+  <span class="slide-tag" style="background:#f9731622; color:#f97316;">v1.0 #35</span>
+  <h1>Tick journal + recovery</h1>
+
+  <div class="cols">
+    <div>
+      <h2>Две таблицы</h2>
+      <h3>tick_events (append-only)</h3>
+      <pre><code>id, timestamp, tick_id, event_type, payload_json</code></pre>
+      <p>11 типов: <code>loop_started/stopped, tick_started/done/idle, goal_activated/completed/failed/spawned, skill_versioned, error</code></p>
+
+      <h3>tick_snapshots</h3>
+      <pre><code>id, timestamp, tick_id
+processed_count, idle_count, error_count
+ticks_with_self_spawn, total_self_spawned
+skill_versions_count
+extra_json</code></pre>
+
+      <h3>Recovery</h3>
+      <p>На старте <code>run-loop --resume</code> читает <code>latest_snapshot()</code> и продолжает с <code>tick_id+1</code>, сохраняя счётчики.</p>
+    </div>
+    <div>
+      <h2>Falls open</h2>
+      <ul>
+        <li>Append/snapshot exception → log warning, loop продолжается</li>
+        <li><code>_build_url</code>: read-only FS → fallback <code>:memory:</code></li>
+        <li>Падение одного тика → ERROR event, continue (не валит loop)</li>
+        <li>Финальный snapshot в <code>finally</code> блок — даже на Ctrl+C</li>
+      </ul>
+
+      <h2>CLI</h2>
+      <pre><code>tick-journal --stats
+tick-journal --event-type goal_spawned --limit 50
+tick-journal --tick-id 1234</code></pre>
+      <p class="muted">Для observability долгих run'ов: «что агент делал в Х часу».</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- 20. CLI                                                      -->
+<!-- ============================================================ -->
+<section class="slide" id="cli">
+  <span class="slide-num">20 · cli</span>
+  <span class="slide-tag">interface</span>
+  <h1>Operator CLI — 16 команд</h1>
+
+  <div class="cols">
+    <div>
+      <h3>Goal management</h3>
+      <table>
+        <tr><td><code>enter-goal</code></td><td>создать pending goal</td></tr>
+        <tr><td><code>list-goals</code></td><td>фильтр по статусу/классу</td></tr>
+        <tr><td><code>approve</code></td><td>pending_approval → pending</td></tr>
+        <tr><td><code>reject</code></td><td>с reason</td></tr>
+        <tr><td><code>inspect</code></td><td>детали цели</td></tr>
+        <tr><td><code>goal-tree</code></td><td>parent/child tree</td></tr>
+        <tr><td><code>bootstrap-standing</code></td><td>создать starter standing-goals</td></tr>
+      </table>
+
+      <h3>Trace explorer</h3>
+      <table>
+        <tr><td><code>inspect-trajectory</code></td><td>steps + costs одного запуска</td></tr>
+        <tr><td><code>recent-trajectories</code></td><td>последние N</td></tr>
+        <tr><td><code>recent-steps</code></td><td>пэйджинг по шагам</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3>Execution</h3>
+      <table>
+        <tr><td><code>run-tick</code></td><td>один атомарный тик</td></tr>
+        <tr><td><code>run-loop</code></td><td>непрерывный цикл; <code>--journal --resume</code></td></tr>
+      </table>
+
+      <h3>Evaluation</h3>
+      <table>
+        <tr><td><code>run-eval</code></td><td><code>--hf</code> + <code>--repeat-k</code> + <code>--held-out</code></td></tr>
+        <tr><td><code>eval-history</code></td><td>list runs; <code>--include-held-out</code></td></tr>
+        <tr><td><code>eval-compare</code></td><td>diff между runs</td></tr>
+      </table>
+
+      <h3>Journal (v1.0 #35)</h3>
+      <table>
+        <tr><td><code>tick-journal</code></td><td><code>--stats / --event-type / --tick-id</code></td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- 21. HISTORY                                                  -->
+<!-- ============================================================ -->
+<section class="slide" id="history">
+  <span class="slide-num">21 · history</span>
+  <span class="slide-tag">timeline</span>
+  <h1>v0 → v1.0</h1>
+
+  <table>
+    <tr><th>версия</th><th>задача</th><th>что появилось</th></tr>
+    <tr><td>v0</td><td>#1–#14</td><td>скелет, LLM client, memory backends, ReAct, MAB integration, smoke test</td></tr>
+    <tr><td>v0.1</td><td>#15</td><td>Multi-tier LLM (light/main/heavy)</td></tr>
+    <tr><td>v0.1</td><td>#16</td><td>Judge predicate via LLM judge</td></tr>
+    <tr><td>v0.1</td><td>#17</td><td>Critic на irreversible actions</td></tr>
+    <tr><td>v0.1</td><td>#18</td><td>Standing-goals starter set</td></tr>
+    <tr><td>v0.1</td><td>#19</td><td>Trace explorer в CLI</td></tr>
+    <tr><td>v0.1</td><td>#20</td><td>run-loop CLI</td></tr>
+    <tr><td>v0.2</td><td>#21</td><td>Real Graphiti + Neo4j wiring</td></tr>
+    <tr><td>v0.2</td><td>#22</td><td>Reflect mode failure_analysis</td></tr>
+    <tr><td>v0.2</td><td>#23</td><td>MemoryAgentBench real adapter</td></tr>
+    <tr><td>v0.2</td><td>#24</td><td>state_change predicate verifier</td></tr>
+    <tr><td>v0.3</td><td>#25</td><td>Persistent eval-history + compare CLI</td></tr>
+    <tr><td>v0.3</td><td>#26</td><td>Full HF MAB loader</td></tr>
+    <tr><td>v0.3</td><td>#27</td><td>Multi-turn chunk-injection</td></tr>
+    <tr><td>v0.3</td><td>#28</td><td>exact_match metric for ICL tasks</td></tr>
+    <tr><td>v0.3</td><td>#29</td><td>Composite verifier</td></tr>
+    <tr><td>v0.3</td><td>#30</td><td>Skill versioning via git auto-commit</td></tr>
+    <tr style="color:var(--accent);"><td>v1.0</td><td>#31+#32</td><td>Held-out flag + reliability metrics (pass@k, p95, entropy)</td></tr>
+    <tr style="color:var(--accent);"><td>v1.0</td><td>#33</td><td>Self-generated goals (reflect → inquiry)</td></tr>
+    <tr style="color:var(--accent);"><td>v1.0</td><td>#34</td><td>Recall as first-class step (recall_memory builtin)</td></tr>
+    <tr style="color:var(--accent);"><td>v1.0</td><td>#35</td><td>Continuous run-loop с journal + recovery</td></tr>
+  </table>
+</section>
+
+<!-- ============================================================ -->
+<!-- 22. WHAT NEXT                                                -->
+<!-- ============================================================ -->
+<section class="slide" id="next">
+  <span class="slide-num">22 · next</span>
+  <span class="slide-tag">future</span>
+  <h1>Что дальше</h1>
+
+  <div class="cols">
+    <div>
+      <h2>Сначала — эмпирика</h2>
+      <ol>
+        <li><b>Зафиксировать held-out baseline</b> на реальном железе:
+          <pre><code>run-eval --hf \
+  --hf-split Long_Range_Understanding \
+  --hf-examples-per-split 10 \
+  --hf-questions-per-example 5 \
+  --held-out \
+  --eval-set mab_holdout_lru_v1 \
+  --repeat-k 3</code></pre>
+        </li>
+        <li><b>Прокрутить run-loop --real сутки+</b> с реальными standing-goals и observability через <code>tick-journal</code></li>
+        <li>На основе данных решить, что чинить</li>
+      </ol>
+    </div>
+    <div>
+      <h2>Кандидаты на v1.1</h2>
+      <ul>
+        <li><b>#36 — Skill spawning.</b> Reflect не только bump'ит, но порождает <em>новые</em> скиллы. Skill-tree, growth rate, кто кого вызывает в template (<code>{{include:skill_id}}</code>).</li>
+        <li><b>#37 — Adversarial / perturbation harness.</b> <code>robustness@k</code> на тех же held-out задачах с paraphrase, chunk-shuffle, distractors. Пробивает потолок «выучил один паттерн».</li>
+        <li><b>#38 — Decomposition.</b> Большие task'и → суб-цели. <code>goal_arbitration</code> учится декомпозировать.</li>
+        <li><b>#39 — Anticipatory standing.</b> Standing policies, которые проактивно создают <em>задачи на основе предсказания</em>, а не только реактивно.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2 style="margin-top:1.5rem;">Принцип v1.x</h2>
+  <p class="lead muted">Каждое улучшение должно быть <em>измеримо</em> на held-out наборе с <em>reliability</em> метриками. Инфраструктура для этого уже есть.</p>
+</section>
+
+<footer>
+  <span class="kbd">↓</span> scroll · <span class="kbd">Home</span> top · <span class="kbd">End</span> bottom
+</footer>
+
+<script>
+mermaid.initialize({
+  startOnLoad: true,
+  theme: 'dark',
+  themeVariables: {
+    background: '#141822',
+    primaryColor: '#1c2230',
+    primaryBorderColor: '#3a4458',
+    primaryTextColor: '#d6dae3',
+    lineColor: '#5a6478',
+    secondaryColor: '#11141b',
+    tertiaryColor: '#0f1218',
+    fontFamily: 'Inter, sans-serif',
+    fontSize: '13px',
+  },
+  flowchart: {
+    curve: 'basis',
+    htmlLabels: true,
+  },
+});
+
+// Keyboard nav
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'g' || e.key === 'End') {
+    document.querySelector('.slide:last-of-type').scrollIntoView({behavior: 'smooth'});
+  } else if (e.key === 'Home') {
+    document.querySelector('.slide:first-of-type').scrollIntoView({behavior: 'smooth'});
+  }
+});
+</script>
+</body>
+</html>
