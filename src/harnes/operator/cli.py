@@ -396,6 +396,147 @@ def run_tick_cmd(real: bool) -> None:
     click.echo(f"  goal status: {state.active_goal.status.value}")
 
 
+# ---------- run-loop ----------
+
+
+@cli.command("run-loop")
+@click.option(
+    "--interval",
+    type=float,
+    default=5.0,
+    show_default=True,
+    help="Секунды между тиками",
+)
+@click.option(
+    "--stub",
+    is_flag=True,
+    default=False,
+    help="Использовать stub ReAct (без LLM) — для smoke-проверки цикла",
+)
+@click.option(
+    "--max-ticks",
+    type=int,
+    default=None,
+    help="Остановиться после N тиков (для dev и тестов). По умолчанию — бесконечно.",
+)
+def run_loop(interval: float, stub: bool, max_ticks: int | None) -> None:
+    """Непрерывный метацикл. Ctrl+C — graceful shutdown.
+
+    На каждом тике: sense → attend → goal_arbitration → (если active goal)
+    recall → react → verify → world_update → store. Между тиками — sleep.
+    """
+    import time
+
+    import structlog
+
+    from harnes.memory.episodic import EpisodicStore
+    from harnes.memory.router import MemoryRouter
+    from harnes.metacycle.tick import run_tick, stub_react_fn
+    from harnes.telemetry import setup_logging
+
+    settings = get_settings()
+    setup_logging(settings.logging.level)
+    log = structlog.get_logger()
+
+    repo = _open_repo()
+    Path(settings.memory.lancedb_path).mkdir(parents=True, exist_ok=True)
+    episodic = EpisodicStore(settings.memory.lancedb_path)
+    router = MemoryRouter(episodic=episodic)
+
+    # React function — stub или реальный
+    react_fn = stub_react_fn
+    if not stub:
+        from harnes.react.loop import run_react
+        from harnes.skills.store import SkillRegistry
+        from harnes.tools.registry import get_registry
+
+        skill_registry = SkillRegistry(
+            settings.procedural_store.bundles_dir,
+            settings.procedural_store.sqlite_path,
+        )
+        general = skill_registry.get("general")
+        if general is None:
+            click.echo("Error: 'general' skill not found", err=True)
+            sys.exit(1)
+        tool_registry = get_registry()
+
+        def real_react(active_goal, focus, memory):
+            return run_react(
+                active_goal=active_goal,
+                skill=general,
+                tool_registry=tool_registry,
+                focus=focus,
+                memory=memory,
+            )
+
+        react_fn = real_react
+
+    log.info(
+        "metacycle.loop.start",
+        interval=interval,
+        stub_mode=stub,
+        max_ticks=max_ticks,
+    )
+    click.echo(
+        f"Running metacycle (interval={interval}s, "
+        f"react={'stub' if stub else 'real LLM'}, "
+        f"max_ticks={max_ticks or '∞'}). Ctrl+C to stop."
+    )
+
+    tick_id = 0
+    processed = 0
+    idle_count = 0
+    try:
+        while True:
+            if max_ticks is not None and tick_id >= max_ticks:
+                log.info("metacycle.loop.max_ticks_reached", tick=tick_id)
+                break
+
+            state = run_tick(
+                tick_id=tick_id,
+                event_queue=[],
+                goal_repo=repo,
+                memory_router=router,
+                episodic=episodic,
+                react_fn=react_fn,
+            )
+
+            if state.idle:
+                idle_count += 1
+                log.debug("metacycle.loop.idle_tick", tick=tick_id)
+            else:
+                processed += 1
+                verdict = state.verdict.status.value if state.verdict else "none"
+                goal_status = (
+                    state.active_goal.status.value if state.active_goal else "none"
+                )
+                log.info(
+                    "metacycle.loop.processed_tick",
+                    tick=tick_id,
+                    goal_id=str(state.active_goal.id) if state.active_goal else None,
+                    verdict=verdict,
+                    goal_status=goal_status,
+                )
+
+            tick_id += 1
+
+            # Sleep только если max_ticks ещё не достигнут
+            if max_ticks is None or tick_id < max_ticks:
+                time.sleep(interval)
+    except KeyboardInterrupt:
+        click.echo("\nGraceful shutdown — Ctrl+C received.")
+    finally:
+        log.info(
+            "metacycle.loop.stopped",
+            total_ticks=tick_id,
+            processed=processed,
+            idle=idle_count,
+        )
+        click.echo(
+            f"Stopped after {tick_id} ticks ({processed} processed, {idle_count} idle)."
+        )
+
+
 # ---------- entry ----------
 
 

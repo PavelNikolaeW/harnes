@@ -179,3 +179,30 @@ def test_goal_tree_single(isolated_cli: CliRunner) -> None:
     result = isolated_cli.invoke(cli, ["goal-tree", goal_id])
     assert result.exit_code == 0
     assert "root goal" in result.output
+
+
+# ---------- v0.1: run-loop ----------
+
+
+def test_run_loop_finite_idle(isolated_cli: CliRunner) -> None:
+    """Без целей: run-loop --max-ticks 3 --stub → 3 idle тика, exit 0."""
+    result = isolated_cli.invoke(
+        cli, ["run-loop", "--max-ticks", "3", "--interval", "0.01", "--stub"]
+    )
+    assert result.exit_code == 0
+    assert "Stopped after 3 ticks" in result.output
+    assert "3 idle" in result.output
+
+
+def test_run_loop_processes_pending_goals(isolated_cli: CliRunner) -> None:
+    """Создаём цель → run-loop --stub один тик → цель должна стать done."""
+    isolated_cli.invoke(cli, ["enter-goal", "a", "--predicate", "structural"])
+    result = isolated_cli.invoke(
+        cli, ["run-loop", "--max-ticks", "1", "--interval", "0.01", "--stub"]
+    )
+    assert result.exit_code == 0
+    assert "1 processed" in result.output
+
+    # Check goal is done
+    list_result = isolated_cli.invoke(cli, ["list-goals", "--status", "done"])
+    assert "a" in list_result.output
