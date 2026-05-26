@@ -331,10 +331,17 @@ def goal_tree(goal_id: str) -> None:
     default=False,
     help="Использовать настоящий ReAct (дёргает LLM) вместо stub'а",
 )
-def run_tick_cmd(real: bool) -> None:
+@click.option(
+    "--world/--no-world",
+    default=True,
+    show_default=True,
+    help="Подключать ли WorldModelStore (Graphiti+Neo4j) для world_update",
+)
+def run_tick_cmd(real: bool, world: bool) -> None:
     """Один тик метацикла.
 
     По умолчанию — stub ReAct (no LLM). С --real — настоящий цикл (LLM-calls).
+    World model подключается если --world (default); ошибки Neo4j swallowed.
     """
     from harnes.memory.episodic import EpisodicStore
     from harnes.memory.router import MemoryRouter
@@ -344,7 +351,18 @@ def run_tick_cmd(real: bool) -> None:
     repo = _open_repo()
     Path(settings.memory.lancedb_path).mkdir(parents=True, exist_ok=True)
     episodic = EpisodicStore(settings.memory.lancedb_path)
-    router = MemoryRouter(episodic=episodic)
+
+    world_store = None
+    if world:
+        from harnes.memory.world import WorldModelStore
+
+        world_store = WorldModelStore(
+            settings.memory.neo4j_uri,
+            settings.memory.neo4j_user,
+            settings.memory.neo4j_password,
+        )
+
+    router = MemoryRouter(episodic=episodic, world=world_store)
 
     react_fn = stub_react_fn
     if real:
@@ -380,7 +398,11 @@ def run_tick_cmd(real: bool) -> None:
         memory_router=router,
         episodic=episodic,
         react_fn=react_fn,
+        world=world_store,
     )
+
+    if world_store is not None:
+        world_store.close()
 
     if state.idle:
         click.echo("Tick idle — no pending goals.")
@@ -419,7 +441,13 @@ def run_tick_cmd(real: bool) -> None:
     default=None,
     help="Остановиться после N тиков (для dev и тестов). По умолчанию — бесконечно.",
 )
-def run_loop(interval: float, stub: bool, max_ticks: int | None) -> None:
+@click.option(
+    "--world/--no-world",
+    default=True,
+    show_default=True,
+    help="Подключать ли WorldModelStore (Graphiti+Neo4j)",
+)
+def run_loop(interval: float, stub: bool, max_ticks: int | None, world: bool) -> None:
     """Непрерывный метацикл. Ctrl+C — graceful shutdown.
 
     На каждом тике: sense → attend → goal_arbitration → (если active goal)
@@ -441,7 +469,18 @@ def run_loop(interval: float, stub: bool, max_ticks: int | None) -> None:
     repo = _open_repo()
     Path(settings.memory.lancedb_path).mkdir(parents=True, exist_ok=True)
     episodic = EpisodicStore(settings.memory.lancedb_path)
-    router = MemoryRouter(episodic=episodic)
+
+    world_store = None
+    if world:
+        from harnes.memory.world import WorldModelStore
+
+        world_store = WorldModelStore(
+            settings.memory.neo4j_uri,
+            settings.memory.neo4j_user,
+            settings.memory.neo4j_password,
+        )
+
+    router = MemoryRouter(episodic=episodic, world=world_store)
 
     # React function — stub или реальный
     react_fn = stub_react_fn
@@ -499,6 +538,7 @@ def run_loop(interval: float, stub: bool, max_ticks: int | None) -> None:
                 memory_router=router,
                 episodic=episodic,
                 react_fn=react_fn,
+                world=world_store,
             )
 
             if state.idle:
@@ -526,6 +566,8 @@ def run_loop(interval: float, stub: bool, max_ticks: int | None) -> None:
     except KeyboardInterrupt:
         click.echo("\nGraceful shutdown — Ctrl+C received.")
     finally:
+        if world_store is not None:
+            world_store.close()
         log.info(
             "metacycle.loop.stopped",
             total_ticks=tick_id,

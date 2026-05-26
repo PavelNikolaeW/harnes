@@ -23,6 +23,10 @@ def isolated_cli(
         "PROCEDURAL_STORE__SQLITE_PATH", str(tmp_path / "skill_metrics.db")
     )
     monkeypatch.setenv("PROCEDURAL_STORE__BUNDLES_DIR", str(tmp_path / "skills"))
+    # CLI tests не должны лезть в реальный Neo4j — поинтим на unreachable.
+    # WorldModelStore swallows connection errors, тест проверяет только
+    # CLI-механику, не side-channel в KG.
+    monkeypatch.setenv("MEMORY__NEO4J_URI", "bolt://nowhere.invalid:7687")
     return CliRunner()
 
 

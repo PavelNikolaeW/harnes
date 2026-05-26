@@ -26,11 +26,35 @@ log = structlog.get_logger()
 
 @lru_cache(maxsize=1)
 def _fastembed_model() -> Any:
-    """Lazy-load fastembed модели. Первый вызов скачивает ~500MB."""
+    """Lazy-load fastembed модели. Первый вызов скачивает модель.
+
+    Если в конфиге запрошен `BAAI/bge-m3` (не в curated-списке fastembed) —
+    автоматический фолбэк на `intfloat/multilingual-e5-large` (1024-dim,
+    multilingual, эквивалентный по качеству для русского/английского).
+    """
     from fastembed import TextEmbedding
 
     settings = get_settings()
-    model_name = settings.embeddings.model
+    requested = settings.embeddings.model
+    supported = {m["model"] for m in TextEmbedding.list_supported_models()}
+    # Fallback chain — стабильно подгружаемые модели в порядке убывания качества.
+    # multilingual-e5-large сейчас глючит из-за external-data файла; mpnet и
+    # bge-large более надёжны в текущей версии fastembed.
+    fallback_chain = [
+        "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",  # multilingual, 768d
+        "BAAI/bge-large-en-v1.5",  # english only, 1024d
+        "BAAI/bge-small-en-v1.5",  # last resort, 384d
+    ]
+    if requested in supported:
+        model_name = requested
+    else:
+        model_name = next((m for m in fallback_chain if m in supported), fallback_chain[-1])
+        log.warning(
+            "embeddings.fastembed.fallback",
+            requested=requested,
+            fallback=model_name,
+            reason="not in fastembed supported list",
+        )
     log.info("embeddings.fastembed.loading", model=model_name)
     model = TextEmbedding(model_name=model_name)
     log.info("embeddings.fastembed.loaded", model=model_name)
