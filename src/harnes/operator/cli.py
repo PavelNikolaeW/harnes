@@ -599,8 +599,34 @@ def run_loop(interval: float, stub: bool, max_ticks: int | None, world: bool) ->
 @click.option(
     "--tasks-file",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    required=True,
-    help="JSON-файл с задачами в формате adapter'а",
+    default=None,
+    help="JSON-файл с задачами в формате adapter'а (mutually exclusive с --hf)",
+)
+@click.option(
+    "--hf",
+    is_flag=True,
+    default=False,
+    help="Загрузить задачи из HuggingFace ai-hyz/MemoryAgentBench (mutually exclusive с --tasks-file)",
+)
+@click.option(
+    "--hf-split",
+    multiple=True,
+    default=None,
+    help="HF-сплит(ы) для загрузки. Можно указывать несколько. По умолчанию — все 4.",
+)
+@click.option(
+    "--hf-examples-per-split",
+    type=int,
+    default=2,
+    show_default=True,
+    help="Максимум context-строк на split (только для --hf)",
+)
+@click.option(
+    "--hf-questions-per-example",
+    type=int,
+    default=5,
+    show_default=True,
+    help="Максимум вопросов из каждой context-строки (только для --hf)",
 )
 @click.option("--limit", type=int, default=None, help="Лимит задач (для smoke-теста)")
 @click.option(
@@ -621,7 +647,11 @@ def run_loop(interval: float, stub: bool, max_ticks: int | None, world: bool) ->
 )
 def run_eval(
     adapter_name: str,
-    tasks_file: Path,
+    tasks_file: Path | None,
+    hf: bool,
+    hf_split: tuple[str, ...],
+    hf_examples_per_split: int,
+    hf_questions_per_example: int,
     limit: int | None,
     stub: bool,
     no_history: bool,
@@ -629,18 +659,43 @@ def run_eval(
 ) -> None:
     """Прогон benchmark adapter'а через нашего агента. Печатает EvalResult.
 
+    Источник задач: --tasks-file (локальный JSON) ИЛИ --hf (HuggingFace).
     По умолчанию пишет результат в eval-history (settings.eval.history_db_path).
-    --no-history отключает запись (для smoke).
     """
     from harnes.eval import EvalHistoryStore, MemoryAgentBenchAdapter, run_evaluation
+    from harnes.eval.adapters import load_hf_tasks
     from harnes.memory.episodic import EpisodicStore
     from harnes.memory.router import MemoryRouter
     from harnes.react.loop import run_react
     from harnes.skills.store import SkillRegistry
     from harnes.tools.registry import get_registry
 
+    if hf and tasks_file:
+        click.echo("Use either --tasks-file OR --hf, not both", err=True)
+        sys.exit(1)
+    if not hf and not tasks_file:
+        click.echo("Must specify either --tasks-file or --hf", err=True)
+        sys.exit(1)
+
     if adapter_name == "memory_agent_bench":
-        adapter = MemoryAgentBenchAdapter(tasks_file=tasks_file)
+        if hf:
+            click.echo(
+                f"Loading HF tasks: splits={list(hf_split) or 'all'}, "
+                f"examples_per_split={hf_examples_per_split}, "
+                f"questions_per_example={hf_questions_per_example}..."
+            )
+            tasks = load_hf_tasks(
+                splits=list(hf_split) if hf_split else None,
+                limit_examples_per_split=hf_examples_per_split,
+                limit_questions_per_example=hf_questions_per_example,
+            )
+            click.echo(f"  loaded {len(tasks)} tasks")
+            adapter = MemoryAgentBenchAdapter(
+                tasks=tasks, metric="substring_exact_match"
+            )
+            adapter.name = "memory_agent_bench_hf"
+        else:
+            adapter = MemoryAgentBenchAdapter(tasks_file=tasks_file)
     else:  # pragma: no cover — Click уже ограничил choices
         click.echo(f"Unknown adapter: {adapter_name}", err=True)
         sys.exit(1)

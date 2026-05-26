@@ -25,6 +25,93 @@ from typing import Any, Iterable
 
 import structlog
 
+
+# HF dataset на huggingface.co/datasets/ai-hyz/MemoryAgentBench
+HF_DATASET_ID = "ai-hyz/MemoryAgentBench"
+
+# Splits в HF-датасете → наша category-нотация
+_HF_SPLITS = {
+    "Accurate_Retrieval": "accurate_retrieval",
+    "Test_Time_Learning": "test_time_learning",
+    "Long_Range_Understanding": "long_range_understanding",
+    "Conflict_Resolution": "conflict_resolution",
+}
+
+# Метрика по категории, как у авторов в README.md (см. § "Clarification on Eval Metrics")
+_CATEGORY_METRICS = {
+    "accurate_retrieval": "substring_exact_match",
+    "conflict_resolution": "substring_exact_match",
+    "test_time_learning": "exact_match",
+    "long_range_understanding": "exact_match",
+}
+
+
+def load_hf_tasks(
+    splits: list[str] | None = None,
+    limit_examples_per_split: int | None = None,
+    limit_questions_per_example: int | None = None,
+) -> list[dict[str, Any]]:
+    """Грузит задачи из HF ai-hyz/MemoryAgentBench и расплющивает в наш формат.
+
+    Каждая HF-строка содержит один context + список вопросов (до 100) + список
+    acceptable-answers (multi-valid). Flatten: каждый (context, q, answers)
+    становится отдельным task'ом в нашем JSON-формате.
+
+    Parameters
+    ----------
+    splits : опциональный subset HF-сплитов. None = все 4.
+    limit_examples_per_split : максимум HF-строк (context'ов) на split.
+    limit_questions_per_example : максимум вопросов из каждой строки.
+    """
+    from datasets import load_dataset
+
+    splits_to_load = splits if splits is not None else list(_HF_SPLITS.keys())
+
+    tasks: list[dict[str, Any]] = []
+    for hf_split in splits_to_load:
+        if hf_split not in _HF_SPLITS:
+            raise ValueError(
+                f"Unknown HF split {hf_split!r}; expected one of {list(_HF_SPLITS)}"
+            )
+        category = _HF_SPLITS[hf_split]
+        metric = _CATEGORY_METRICS[category]
+
+        ds = load_dataset(HF_DATASET_ID, split=hf_split)
+        if limit_examples_per_split is not None:
+            ds = ds.select(range(min(limit_examples_per_split, len(ds))))
+
+        for ex_idx, row in enumerate(ds):
+            context = str(row["context"])
+            questions = row.get("questions") or []
+            answers = row.get("answers") or []
+            n_questions = (
+                min(len(questions), limit_questions_per_example)
+                if limit_questions_per_example is not None
+                else len(questions)
+            )
+            for qi in range(n_questions):
+                if qi >= len(answers):
+                    break
+                question = str(questions[qi])
+                # answers[qi] — список acceptable вариантов (multi-valid match)
+                accepted = answers[qi] if isinstance(answers[qi], list) else [answers[qi]]
+                accepted_strs = [str(a) for a in accepted if a]
+                if not accepted_strs:
+                    continue
+                tasks.append(
+                    {
+                        "task_id": f"{category}_{ex_idx:03d}_q{qi:03d}",
+                        "category": category,
+                        "context": context,
+                        "question": question,
+                        # expected_answer теперь может быть list — verify учитывает оба формата.
+                        "expected_answer": accepted_strs if len(accepted_strs) > 1 else accepted_strs[0],
+                        "metric": metric,
+                    }
+                )
+
+    return tasks
+
 from harnes.eval.harness import BenchmarkAdapter
 from harnes.goals.schema import (
     Goal,
@@ -120,16 +207,23 @@ class MemoryAgentBenchAdapter(BenchmarkAdapter):
             yield task_id, goal
 
     def verify(self, task_id: str, trajectory: Trajectory) -> tuple[bool, str | None]:
-        """Сверяет trajectory.final_state с expected_answer по выбранной метрике."""
-        # Найти task по id для expected_answer.
+        """Сверяет trajectory.final_state с expected_answer по выбранной метрике.
+
+        expected_answer может быть строкой ИЛИ списком (multi-valid match —
+        достаточно совпасть с одним из вариантов). HF MAB чаще даёт список.
+        """
         task = next((t for t in self._tasks if str(t["task_id"]) == task_id), None)
         if task is None:
             return False, "unknown_task"
 
-        expected = str(task["expected_answer"])
+        raw_expected = task["expected_answer"]
+        accepted = (
+            [str(x) for x in raw_expected]
+            if isinstance(raw_expected, list)
+            else [str(raw_expected)]
+        )
         metric = task.get("metric", self.metric)
 
-        # Извлечь ответ из final_state.
         fs = trajectory.final_state
         if fs is None:
             return False, "no_final_state"
@@ -141,10 +235,11 @@ class MemoryAgentBenchAdapter(BenchmarkAdapter):
             return False, "empty_answer"
 
         if metric == "substring_exact_match":
-            ok = expected.lower() in answer.lower()
+            ok = any(e.lower() in answer.lower() for e in accepted)
             return ok, None if ok else "substring_not_found"
         if metric == "exact_match":
-            ok = answer.strip().lower() == expected.strip().lower()
+            normalized = answer.strip().lower()
+            ok = any(normalized == e.strip().lower() for e in accepted)
             return ok, None if ok else "exact_mismatch"
 
         log.warning("memory_agent_bench.unknown_metric", metric=metric)

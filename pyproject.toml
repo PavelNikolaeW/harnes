@@ -36,6 +36,9 @@ dependencies = [
 
     # Storage
     "sqlmodel>=0.0.20",
+
+    # HuggingFace datasets (для MemoryAgentBench и других бенчмарков)
+    "datasets>=2.20",
 ]
 
 [dependency-groups]
