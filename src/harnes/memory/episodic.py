@@ -43,6 +43,7 @@ _trajectory_schema = pa.schema(
         pa.field("final_state_json", pa.string()),
         pa.field("started_at", pa.timestamp("us")),
         pa.field("ended_at", pa.timestamp("us")),
+        pa.field("metadata_json", pa.string()),
     ]
 )
 
@@ -101,6 +102,7 @@ class EpisodicStore:
             else "",
             "started_at": traj.started_at.replace(tzinfo=None),
             "ended_at": traj.ended_at.replace(tzinfo=None) if traj.ended_at else None,
+            "metadata_json": json.dumps(traj.metadata),
         }
         self.db.open_table(TRAJECTORIES_TABLE).add([meta])
 

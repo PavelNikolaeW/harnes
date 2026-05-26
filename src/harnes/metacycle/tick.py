@@ -248,6 +248,45 @@ def store_stage(
     return state
 
 
+# ---------- Reflect trigger (v0.2: failure_analysis only) ----------
+
+
+def _maybe_reflect_failure(state: "TickState", skill_registry: Any) -> None:
+    """Запускает reflect.failure_analysis если есть skill_id в trajectory.metadata."""
+    assert state.trajectory is not None
+    assert state.active_goal is not None
+    assert state.verdict is not None
+
+    skill_id = state.trajectory.metadata.get("skill_id") if isinstance(state.trajectory.metadata, dict) else None
+    if not skill_id:
+        return
+
+    skill = skill_registry.get(skill_id)
+    if skill is None:
+        log.warning("reflect.skill_not_found", skill_id=skill_id)
+        return
+
+    from harnes.metacycle.reflect import reflect_failure_analysis
+
+    try:
+        new_skill = reflect_failure_analysis(
+            trajectory=state.trajectory,
+            goal=state.active_goal,
+            verdict=state.verdict,
+            skill=skill,
+            skill_registry=skill_registry,
+        )
+        if new_skill is not None:
+            log.info(
+                "metacycle.reflect.versioned",
+                skill_id=new_skill.id,
+                from_version=skill.version,
+                to_version=new_skill.version,
+            )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("metacycle.reflect.failed", error=str(exc))
+
+
 # ---------- Driver ----------
 
 
@@ -260,11 +299,15 @@ def run_tick(
     react_fn: ReactFn = stub_react_fn,
     world: WorldModelStore | None = None,
     check_standing: bool = True,
+    skill_registry: Any = None,
 ) -> TickState:
     """Один атомарный тик метацикла. Возвращает финальный TickState.
 
     check_standing=True (default) — после attend проверяются standing-цели
     и при срабатывании условий создаются task-подцели.
+
+    skill_registry опционален. Если передан — на verify=FAIL запустится
+    reflect (failure_analysis), который может выкатить новую версию скилла.
     """
     state = TickState(tick_id=tick_id)
 
@@ -291,8 +334,17 @@ def run_tick(
     state = react_loop_stage(state, react_fn)
     state = verify_stage(state)
     state = world_update_stage(state, world)
-    # reflect — SKIPPED в v0 (см. § 15, триггерный, не каждый тик)
     state = store_stage(state, episodic, goal_repo)
+
+    # Reflect — триггерный (v0.2: только failure_analysis).
+    if (
+        skill_registry is not None
+        and state.verdict is not None
+        and state.verdict.status == VerifyStatus.FAIL
+        and state.trajectory is not None
+        and state.active_goal is not None
+    ):
+        _maybe_reflect_failure(state, skill_registry)
 
     log.info("metacycle.tick.done", tick=tick_id, goal_status=state.active_goal.status if state.active_goal else None)
     return state

@@ -365,6 +365,7 @@ def run_tick_cmd(real: bool, world: bool) -> None:
     router = MemoryRouter(episodic=episodic, world=world_store)
 
     react_fn = stub_react_fn
+    skill_registry_for_reflect = None
     if real:
         from harnes.react.loop import run_react
         from harnes.skills.store import SkillRegistry
@@ -379,11 +380,12 @@ def run_tick_cmd(real: bool, world: bool) -> None:
             click.echo("Error: no 'general' skill found in bundles_dir", err=True)
             sys.exit(1)
         tool_registry = get_registry()
+        skill_registry_for_reflect = skill_registry
 
         def real_react(active_goal, focus, memory):
             return run_react(
                 active_goal=active_goal,
-                skill=general,
+                skill=skill_registry.get("general") or general,
                 tool_registry=tool_registry,
                 focus=focus,
                 memory=memory,
@@ -399,6 +401,7 @@ def run_tick_cmd(real: bool, world: bool) -> None:
         episodic=episodic,
         react_fn=react_fn,
         world=world_store,
+        skill_registry=skill_registry_for_reflect,
     )
 
     if world_store is not None:
@@ -484,6 +487,7 @@ def run_loop(interval: float, stub: bool, max_ticks: int | None, world: bool) ->
 
     # React function — stub или реальный
     react_fn = stub_react_fn
+    skill_registry_for_reflect = None
     if not stub:
         from harnes.react.loop import run_react
         from harnes.skills.store import SkillRegistry
@@ -498,11 +502,12 @@ def run_loop(interval: float, stub: bool, max_ticks: int | None, world: bool) ->
             click.echo("Error: 'general' skill not found", err=True)
             sys.exit(1)
         tool_registry = get_registry()
+        skill_registry_for_reflect = skill_registry
 
         def real_react(active_goal, focus, memory):
             return run_react(
                 active_goal=active_goal,
-                skill=general,
+                skill=skill_registry.get("general") or general,
                 tool_registry=tool_registry,
                 focus=focus,
                 memory=memory,
@@ -539,6 +544,7 @@ def run_loop(interval: float, stub: bool, max_ticks: int | None, world: bool) ->
                 episodic=episodic,
                 react_fn=react_fn,
                 world=world_store,
+                skill_registry=skill_registry_for_reflect,
             )
 
             if state.idle:

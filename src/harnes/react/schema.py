@@ -144,3 +144,5 @@ class Trajectory(BaseModel):
     total_cost: Cost = Field(default_factory=Cost)
     started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     ended_at: datetime | None = None
+    # skill_id, skill_version и любые другие плоские атрибуты для reflect / аналитики.
+    metadata: dict[str, Any] = Field(default_factory=dict)

@@ -247,6 +247,10 @@ def run_react(
     traj = Trajectory(
         goal_id=active_goal.id,
         started_at=datetime.now(UTC),
+        metadata={
+            "skill_id": skill.id,
+            "skill_version": skill.version,
+        },
     )
     total_tokens = 0
     critic_rejections = 0
