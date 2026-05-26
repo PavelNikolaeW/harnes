@@ -1,0 +1,36 @@
+# Дефолтная конфигурация. Переопределяется через env-переменные
+# (env_nested_delimiter = "__", например LLM__MODEL=...).
+
+llm:
+  api_base: "http://192.168.0.111:8000/v1"
+  api_key: "dummy"
+  model: "gemma-26b-a4b"
+  timeout: 60
+  max_retries: 3
+
+memory:
+  lancedb_path: "/app/data/lancedb"
+  qdrant_url: "http://localhost:6333"
+  neo4j_uri: "bolt://localhost:7687"
+  neo4j_user: "neo4j"
+  neo4j_password: "harnes-dev-pw"
+
+goal_store:
+  sqlite_path: "/app/data/goals.db"
+
+procedural_store:
+  sqlite_path: "/app/data/skill_metrics.db"
+  bundles_dir: "/app/skills"
+
+embeddings:
+  # use_server=true когда /v1/embeddings появится на ll-router; пока fallback.
+  use_server: false
+  model: "BAAI/bge-m3"
+
+logging:
+  level: "INFO"
+  trace_log_path: "/app/data/traces"
+
+tick:
+  min_interval_seconds: 1.0
+  budget_default_tokens: 50000

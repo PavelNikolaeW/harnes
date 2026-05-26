@@ -1,0 +1,1680 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Архитектура универсального автономного агента — v0.1</title>
+<style>
+  :root {
+    --fg: #1a1a1a;
+    --fg-soft: #555;
+    --bg: #fdfdfb;
+    --bg-code: #f3f1ec;
+    --bg-decision: #fffaee;
+    --border: #d8d4cc;
+    --border-strong: #888;
+    --accent: #634;
+    --accent-soft: #a78;
+    --link: #345;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.55;
+    margin: 0;
+    padding: 0;
+  }
+
+  .wrap {
+    max-width: 940px;
+    margin: 0 auto;
+    padding: 48px 32px 96px;
+  }
+
+  header.doc {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 16px;
+    margin-bottom: 32px;
+  }
+
+  header.doc h1 {
+    font-size: 28px;
+    margin: 0 0 8px;
+    line-height: 1.25;
+  }
+
+  header.doc .meta {
+    color: var(--fg-soft);
+    font-size: 14px;
+  }
+
+  nav.toc {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    padding: 16px 20px;
+    margin: 24px 0 40px;
+    border-radius: 4px;
+  }
+
+  nav.toc h2 {
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--fg-soft);
+    margin: 0 0 12px;
+  }
+
+  nav.toc ol {
+    margin: 0;
+    padding-left: 22px;
+    columns: 2;
+    column-gap: 32px;
+  }
+
+  nav.toc li {
+    margin: 4px 0;
+    break-inside: avoid;
+  }
+
+  nav.toc a {
+    color: var(--link);
+    text-decoration: none;
+  }
+
+  nav.toc a:hover { text-decoration: underline; }
+
+  h2 {
+    font-size: 22px;
+    margin: 48px 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  h3 {
+    font-size: 17px;
+    margin: 28px 0 10px;
+    color: var(--accent);
+  }
+
+  h4 {
+    font-size: 14px;
+    margin: 20px 0 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--fg-soft);
+  }
+
+  p { margin: 0 0 12px; }
+
+  ul, ol { margin: 0 0 14px; padding-left: 24px; }
+  li { margin: 4px 0; }
+
+  code {
+    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+    font-size: 13px;
+    background: var(--bg-code);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+    font-size: 12.5px;
+    line-height: 1.5;
+    margin: 12px 0 18px;
+  }
+
+  pre code {
+    background: transparent;
+    padding: 0;
+    font-size: inherit;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 20px;
+    font-size: 14px;
+  }
+
+  th, td {
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+
+  th {
+    background: var(--bg-code);
+    font-weight: 600;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--fg-soft);
+  }
+
+  .decisions {
+    background: var(--bg-decision);
+    border: 1px solid var(--accent-soft);
+    border-left: 4px solid var(--accent);
+    border-radius: 4px;
+    padding: 16px 24px;
+    margin: 18px 0;
+  }
+
+  .decisions h4 {
+    margin-top: 0;
+    color: var(--accent);
+  }
+
+  .decisions ol { padding-left: 22px; }
+
+  .open-q {
+    background: #f7faff;
+    border: 1px solid #b6c8e0;
+    border-left: 4px solid #335;
+    border-radius: 4px;
+    padding: 14px 22px;
+    margin: 16px 0;
+  }
+
+  .callout {
+    border-left: 3px solid var(--border-strong);
+    padding: 6px 0 6px 16px;
+    margin: 14px 0;
+    color: var(--fg-soft);
+    font-style: italic;
+  }
+
+  .schema-block {
+    margin: 10px 0 18px;
+  }
+
+  .stage-table th:nth-child(1) { width: 18%; }
+  .stage-table th:nth-child(2) { width: 42%; }
+
+  hr {
+    border: 0;
+    border-top: 1px solid var(--border);
+    margin: 40px 0;
+  }
+
+  .small { font-size: 13px; color: var(--fg-soft); }
+
+  a.anchor {
+    color: var(--border-strong);
+    text-decoration: none;
+    margin-left: 6px;
+    opacity: 0;
+    transition: opacity .15s;
+    font-weight: normal;
+  }
+
+  h2:hover a.anchor,
+  h3:hover a.anchor { opacity: 1; }
+
+  @media print {
+    body { background: white; }
+    nav.toc { page-break-after: always; }
+    h2 { page-break-before: auto; }
+    pre, table, .decisions, .open-q { page-break-inside: avoid; }
+    a { color: inherit; text-decoration: none; }
+  }
+
+  @media (max-width: 720px) {
+    .wrap { padding: 24px 16px 64px; }
+    nav.toc ol { columns: 1; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc">
+  <h1>Архитектура универсального автономного агента</h1>
+  <div class="meta">
+    Версия 0.2 &middot; зафиксировано 2026-05-26 &middot; статус: stack-freeze v0
+  </div>
+</header>
+
+<section id="abstract">
+  <p>
+    Документ фиксирует архитектуру обвязки над локальными LLM для исследования
+    гипотезы о метацикле над ReAct-цикл&#1086;&#1084;. Цель — система, которая
+    по целям из не заданного на этапе проектирования распределения доводит их
+    до завершения в консеквенциальном пространстве действий на протяжённом
+    горизонте при минимальном пошаговом контроле оператора.
+  </p>
+  <p>
+    Документ описывает компоненты, схему взаимодействия и зафиксированные решения.
+    Открытые вопросы перечислены в финальном разделе.
+  </p>
+</section>
+
+<nav class="toc">
+  <h2>Содержание</h2>
+  <ol>
+    <li><a href="#problem">Постановка задачи</a></li>
+    <li><a href="#overview">Обзор архитектуры</a></li>
+    <li><a href="#metacycle">Метацикл</a></li>
+    <li><a href="#goals">Подсистема целей</a></li>
+    <li><a href="#standing">Standing-цели</a></li>
+    <li><a href="#operator-approval">Operator-approval flow</a></li>
+    <li><a href="#react">ReAct: внутренний цикл</a></li>
+    <li><a href="#trajectory">Trajectory и шаги</a></li>
+    <li><a href="#skills">Скиллы</a></li>
+    <li><a href="#tools">Tool-layer</a></li>
+    <li><a href="#critic">Критик</a></li>
+    <li><a href="#subagent">Субагент</a></li>
+    <li><a href="#memory">Memory layer</a></li>
+    <li><a href="#world-model">World model</a></li>
+    <li><a href="#reflect">Reflect</a></li>
+    <li><a href="#cross-cutting">Сквозные свойства</a></li>
+    <li><a href="#stack">Стек реализации</a></li>
+    <li><a href="#decisions">Журнал решений</a></li>
+    <li><a href="#open">Открытые вопросы</a></li>
+  </ol>
+</nav>
+
+<!-- ============================================ -->
+<section id="problem">
+<h2>1. Постановка задачи <a class="anchor" href="#problem">#</a></h2>
+
+<p>
+  <strong>Объект.</strong> Универсальный автономный агент — система, которая
+  по целям из <em>открытого, не заданного на этапе проектирования</em>
+  распределения доводит их до завершения в консеквенциальном пространстве
+  действий на <em>протяжённом горизонте</em> при <em>минимальном пошаговом
+  контроле</em> оператора. Операциональные определения:
+</p>
+<ul>
+  <li>«универсальный» — относительно распределения задач (оценка на отложенных
+    и заведомо новых средах);</li>
+  <li>«автономный» — положение на спектре «локус и зернистость контроля»
+    (доля вмешательств на единицу работы, длина горизонта без коррекции);</li>
+  <li>«агент» — действует на среду, меняя её состояние, в отличие от системы,
+    лишь выдающей предсказание или текст.</li>
+</ul>
+
+<p>
+  <strong>Пробел.</strong> Каждое из трёх свойств по отдельности достигнуто.
+  Открыт вопрос их конъюнкции: что позволяет одной системе сохранять компетентное
+  и робастное преследование цели по мере расширения распределения задач
+  и удлинения горизонта. Это разворачивается в две измеримые оси —
+  <em>ширина распределения</em> и <em>длина горизонта</em>.
+</p>
+
+<p>
+  <strong>Гипотеза.</strong> Метацикл поверх ReAct-цикла, работающий
+  непрерывно (не ждёт сообщений оператора), с явными этапами восприятия,
+  внимания, арбитража целей, recall'а, исполнения, верификации, обновления
+  явной модели мира, рефлексии и сохранения. Надёжность — метрика первого
+  класса наряду со способностью.
+</p>
+
+<p>
+  <strong>Критерий прогресса.</strong> Производительность на отложенном
+  распределении задач при ограниченном бюджете человеческих вмешательств
+  на длинном горизонте. Без held-out-оценки заявление об общности
+  нефальсифицируемо.
+</p>
+
+<p class="callout">
+  Это исследовательская система. Стоимость токенов и латентность инференса
+  не оптимизируются. Решения принимаются в пользу методологической чистоты
+  и проверяемости гипотезы.
+</p>
+</section>
+
+<!-- ============================================ -->
+<section id="overview">
+<h2>2. Обзор архитектуры <a class="anchor" href="#overview">#</a></h2>
+
+<p>
+  Два вложенных контура:
+</p>
+<ul>
+  <li><strong>Метацикл</strong> — внешний синхронный цикл, тикает непрерывно.
+    Управляет вниманием, целями, памятью, рефлексией.</li>
+  <li><strong>ReAct-цикл</strong> — внутренний, запускается метациклом
+    под активную листовую цель. Делает тактическое планирование
+    и исполнение в пределах одной траектории.</li>
+</ul>
+
+<h4>Двухуровневая декомпозиция работы</h4>
+<ul>
+  <li><strong>Goal decomposition</strong> (в <code>goal_arbitration</code>):
+    разложение цели на подцели. Подцели — это <code>Goal</code>-объекты со
+    своими предикатами и бюджетами, живут на длинном горизонте.</li>
+  <li><strong>Tactical planning</strong> (внутри ReAct): разложение
+    листовой цели на последовательность действий внутри одной траектории.
+    Шаги плана не цели, они транзиентны.</li>
+</ul>
+
+<h4>Общий поток одного тика</h4>
+<pre><code>[tick]
+  sense                    — polling + чтение event-queue, без LLM
+  attend                   — score(relevance, novelty, urgency);
+                             прогон standing-целей по FocusFrame
+  goal_arbitration         — арбитраж + источник новых целей
+                             + проверка pending_verifications
+                             + operator-approval flow для top-level self-целей
+                             → active_goal | idle
+  if active_goal:
+    recall(coarse)         — единый memory layer (vector + graph + log)
+    react_loop             — внутренний цикл, см. § 7
+    verify(immediate)      — leaf-level; composite/external → pending_verifications
+    world_update           — обновление явной модели мира (KG, темпоральный)
+    if reflect_trigger:
+      reflect              — режим выводится из триггера
+    store                  — маршрутизация в бэкенды памяти
+[end tick]</code></pre>
+</section>
+
+<!-- ============================================ -->
+<section id="metacycle">
+<h2>3. Метацикл <a class="anchor" href="#metacycle">#</a></h2>
+
+<p>
+  Стадии метацикла как чистые функции от своего входа в выход. Состояние
+  явное, проходит через тик-стейт. Этапы вызываются последовательно
+  прямыми функциональными вызовами (не blackboard, не event-bus).
+</p>
+
+<table class="stage-table">
+<thead>
+<tr>
+  <th>Этап</th>
+  <th>Назначение и поведение</th>
+  <th>Частота</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td><code>sense</code></td>
+  <td>Сборка сырого состояния среды и внутренних триггеров. Polling сенсоров
+    + чтение event-queue (push). Lossless в raw-лог. LLM-вызовов нет.
+    Выход: <code>ObservationBundle</code>.</td>
+  <td>Каждый тик</td>
+</tr>
+<tr>
+  <td><code>attend</code></td>
+  <td>Из <code>ObservationBundle</code> отобрать релевантное для активной цели,
+    проранжировать. Score = взвешенная сумма <em>relevance</em>
+    (cosine эмбеддинга наблюдения и описания цели) + <em>novelty</em>
+    (расстояние от recent attention history) + <em>urgency</em>
+    (теги источника + паттерны оператора). Здесь же — прогон standing-целей
+    по результату. Выход: <code>FocusFrame</code>.</td>
+  <td>Каждый тик</td>
+</tr>
+<tr>
+  <td><code>goal_arbitration</code></td>
+  <td>Стейтфул-сервис управления целями. Арбитраж активной цели по приоритету
+    и дедлайнам. Источник новых целей (декомпозиция родителя, аномалия в
+    <code>attend</code>, maintenance-расписание). Проверка очереди
+    <code>pending_verifications</code>. Operator-approval flow для top-level
+    self-целей. Выход: <code>active_goal | idle</code> + <code>allowed_skills</code>
+    + <code>budget</code>.</td>
+  <td>Каждый тик</td>
+</tr>
+<tr>
+  <td><code>recall</code> (coarse)</td>
+  <td>Грубое вспоминание для прайминга ReAct'а. Запросы по трём индексам
+    (vector / graph / episodic-log) с низким top-k. Тонкое доставание остаётся
+    как retrieval-tool внутри ReAct. Выход: <code>MemoryBundle</code>.</td>
+  <td>Перед запуском ReAct</td>
+</tr>
+<tr>
+  <td><code>react_loop</code></td>
+  <td>Внутренний цикл, см. § 7. Вход: <code>ActiveGoal</code>,
+    <code>FocusFrame</code>, <code>MemoryBundle</code>, <code>allowed_skills</code>.
+    Выход: <code>Trajectory</code>.</td>
+  <td>Когда есть active_goal</td>
+</tr>
+<tr>
+  <td><code>verify</code> (immediate)</td>
+  <td>Проверка <code>predicate_of_success</code> листовой цели по выходу ReAct.
+    Анти-коррелирован с исполнителем: отдельный промпт, в идеале — отдельная
+    модель. Composite/external верификации регистрируются в
+    <code>pending_verifications</code> и резолвятся в последующих тиках.
+    Выход: <code>Verdict</code>.</td>
+  <td>После выхода ReAct</td>
+</tr>
+<tr>
+  <td><code>world_update</code></td>
+  <td>Обновление явной модели мира на основе наблюдённых дельт состояния.
+    Сравнение предсказаний (из <code>Action.expected_outcome</code>) с реальностью.
+    Создание/обновление сущностей и связей в темпоральном KG.</td>
+  <td>После verify</td>
+</tr>
+<tr>
+  <td><code>reflect</code></td>
+  <td>Извлечение паттернов из окна опыта. Режим выбирается по триггеру
+    (см. § 15). Может обновлять реестр скиллов, политики attention, стратегии,
+    standing-цели. Дорогой LLM-вызов с большим контекстом.</td>
+  <td>По триггеру</td>
+</tr>
+<tr>
+  <td><code>store</code></td>
+  <td>Маршрутизация по бэкендам памяти: episodic-лог, vector-store, KG,
+    реестр скиллов. Индексация, дедупликация, decay.</td>
+  <td>Post-ReAct и post-reflect</td>
+</tr>
+</tbody>
+</table>
+
+<div class="decisions">
+  <h4>Решения по метациклу</h4>
+  <ol>
+    <li>Цикл синхронный, без прерываний (v1). Тик атомарный; новые события
+      ждут в очереди до следующего тика. Длительность тика лечится бюджетом ReAct.</li>
+    <li>Обмен данными между этапами — direct sequential calls. Тик-стейт
+      прокидывается через этапы, параллельно эмитится trace-log
+      для наблюдаемости.</li>
+    <li>Push-события идут в очередь; <code>sense</code> читает её + делает
+      active polling. Рестарта тика на push нет.</li>
+    <li>Один ReAct в момент времени. Параллелизм — только через
+      <code>spawn_subagent</code> внутри ReAct, и тот в v1 синхронный.</li>
+    <li>Тяжёлая работа условна. Большинство тиков лёгкие:
+      <code>sense → attend → goal_arbitration → idle</code>.</li>
+  </ol>
+</div>
+</section>
+
+<!-- ============================================ -->
+<section id="goals">
+<h2>4. Подсистема целей <a class="anchor" href="#goals">#</a></h2>
+
+<h3>Схема цели</h3>
+<pre><code>Goal {
+  id
+  parent_id              # дерево декомпозиции
+  depends_on: [id,...]   # DAG-зависимости между нодами (поверх дерева)
+
+  description            # естественный язык
+  class                  # task | inquiry | maintenance | standing | practice
+  predicate_of_success   # типизированный, см. ниже
+
+  priority
+  deadline               # опционально
+
+  status                 # pending | pending_approval | active | suspended
+                         # | done | failed | abandoned
+  budget {
+    tokens, steps, time, money
+    consumed, remaining
+  }
+
+  allowed_skills: [skill_id,...]
+
+  aggregation            # для внутренних нод дерева: all | custom (v1)
+
+  origin                 # operator | decomposition | self
+  originator             # кто конкретно создал
+  origin_subtype         # для self: curiosity | learning | maintenance | anticipatory
+
+  created_at, updated_at
+  metadata
+}</code></pre>
+
+<h3>Иерархия</h3>
+<p>
+  Иерархия — дерево (один <code>parent_id</code>), но между нодами разрешены
+  <code>depends_on</code>-связи (DAG поверх дерева). Это даёт почти всю
+  выразительность полноценного DAG'а без его минусов (циклы, топосорт).
+</p>
+
+<h3>Бюджеты</h3>
+<p>
+  Бюджеты независимы по целям. При создании ребёнка ему явно выдаётся бюджет;
+  бюджет родителя на это не уменьшается (общий системный бюджет — отдельная сущность).
+  Дефолты — оператор; LLM может предложить изменение, <code>reflect</code> —
+  тоже, финальное слово оператор. Бюджет в схеме мутабельный с историей правок.
+</p>
+
+<h3>Predicate-types</h3>
+<table>
+<thead>
+<tr><th>Тип</th><th>Семантика</th><th>Когда применять</th></tr>
+</thead>
+<tbody>
+<tr>
+  <td><code>structural</code></td>
+  <td>Точное соответствие схеме/значению</td>
+  <td>Самый сильный. Берётся первым выбором ради research-валидности.</td>
+</tr>
+<tr>
+  <td><code>state_change</code></td>
+  <td>Свойство среды стало истинно после действия</td>
+  <td>Сильный. Требует state-проверки во внешней среде.</td>
+</tr>
+<tr>
+  <td><code>judge</code></td>
+  <td>LLM или человек судит по описанию</td>
+  <td>Слабый, шумный. Метрика наследует ошибки судьи. Использовать с явным флагом «измерено LLM-судьёй».</td>
+</tr>
+<tr>
+  <td><code>composite</code></td>
+  <td>Аггрегация над детьми</td>
+  <td>Только для внутренних нод дерева. Аггрегация — <code>all</code> или <code>custom</code> в v1.</td>
+</tr>
+<tr>
+  <td><code>external</code></td>
+  <td>Другой агент, система или время подтверждают</td>
+  <td>Всегда deferred — регистрируется в pending_verifications.</td>
+</tr>
+</tbody>
+</table>
+
+<h3>Классы целей</h3>
+<table>
+<thead>
+<tr><th>Класс</th><th>Характер</th><th>Predicate</th><th>Lifecycle</th><th>Пример</th></tr>
+</thead>
+<tbody>
+<tr>
+  <td><code>task</code></td>
+  <td>Разовое достижение</td>
+  <td>structural / state_change / judge</td>
+  <td>One-shot, закрывается по completion</td>
+  <td>«написать функцию X»</td>
+</tr>
+<tr>
+  <td><code>inquiry</code></td>
+  <td>Открытый сбор знания</td>
+  <td>judge или ручной критерий насыщения</td>
+  <td>One-shot, может порождать sub-<code>task</code>'и</td>
+  <td>«разобраться, как работает Y»</td>
+</tr>
+<tr>
+  <td><code>maintenance</code></td>
+  <td>Системная гигиена</td>
+  <td>structural (например, «размер episodic-лога &lt; N»)</td>
+  <td>Recurring, перепланирует сам себя</td>
+  <td>«консолидировать память»</td>
+</tr>
+<tr>
+  <td><code>standing</code></td>
+  <td>Политика «всегда»</td>
+  <td>Per-tick check предиката</td>
+  <td>Always-active, нет состояния done</td>
+  <td>«если verify=fail и priority≥P — поднять inquiry»</td>
+</tr>
+<tr>
+  <td><code>practice</code></td>
+  <td>Тренировка скилла</td>
+  <td>structural + метрика</td>
+  <td>One-shot, выход = обновление метрики скилла</td>
+  <td>«выполнить N раз skill X на синтетике»</td>
+</tr>
+</tbody>
+</table>
+
+<h3>Aggregation</h3>
+<p>
+  В v1 поддерживаются <code>all</code> и <code>custom</code>. <code>any</code>,
+  <code>k-of-n</code>, <code>weighted</code> — добавляются по факту появления случаев.
+</p>
+
+<h3>Origin и право на self-цели</h3>
+<p>
+  Агент может ставить себе цели любого класса, но <strong>верхнеуровневые
+  self-цели</strong> (<code>parent_id is null AND origin = self</code>) проходят
+  через operator-approval (см. § 6). Декомпозиция уже активной цели — без апрува.
+  Это явно фиксирует позицию на спектре «локус и зернистость контроля» в твоём
+  определении автономности.
+</p>
+
+<h3>Верификация для дерева целей</h3>
+<ul>
+  <li><strong>Leaf verify</strong> — синхронный, сразу после exit ReAct'а.</li>
+  <li><strong>Composite verify</strong> — для внутренней ноды; триггерится,
+    когда все потомки в терминальном статусе. Либо аггрегация
+    (<code>all</code> / <code>custom</code>), либо отдельная проверка
+    родительского предиката.</li>
+  <li><strong>Deferred verify</strong> — когда верификация зависит от внешнего
+    события, другого агента или времени. Регистрируется в
+    <code>pending_verifications</code>; на каждом тике <code>goal_arbitration</code>
+    проверяет, появились ли в <code>sense</code> факты, позволяющие разрешить
+    верификацию.</li>
+</ul>
+
+<div class="decisions">
+  <h4>Решения по подсистеме целей</h4>
+  <ol>
+    <li>Иерархия — tree + <code>depends_on</code> (DAG-lite).</li>
+    <li>Бюджеты независимы по целям (вариант A).</li>
+    <li>Predicate-types — все пять (<code>structural</code>, <code>state_change</code>,
+      <code>judge</code>, <code>composite</code>, <code>external</code>); приоритет
+      на <code>structural</code> и <code>state_change</code> для research-валидности.</li>
+    <li>Aggregation в v1 — <code>all</code> и <code>custom</code>.</li>
+    <li>Классы — все пять (<code>task</code>, <code>inquiry</code>,
+      <code>maintenance</code>, <code>standing</code>, <code>practice</code>).</li>
+    <li>Self-цели верхнего уровня — через operator-approval с эскалацией по таймауту.</li>
+    <li>Verify трёх уровней: immediate-leaf / composite / deferred.</li>
+  </ol>
+</div>
+</section>
+
+<!-- ============================================ -->
+<section id="standing">
+<h2>5. Standing-цели <a class="anchor" href="#standing">#</a></h2>
+
+<p>
+  Standing-цели — постоянно активные условные политики (реактивный слой).
+  Наблюдают состояние, порождают <code>task</code>-подцели при срабатывании
+  условия. Сами никогда не «выполняются», не имеют статуса <code>done</code>,
+  действий не совершают — только триггерят новые цели.
+</p>
+
+<h4>Примеры</h4>
+<ul>
+  <li>«Когда в <code>sense</code> приходит alert от X — поднять <code>task: investigate alert</code>».</li>
+  <li>«Когда <code>world_update</code> зафиксировал, что сервис Y в нерабочем состоянии — поднять <code>task: восстановить Y</code>».</li>
+  <li>«Если последняя operator-цель завершена больше T тиков назад — поднять <code>inquiry: что делать дальше</code>».</li>
+  <li>«Если размер episodic-лога &gt; N без консолидации — поднять <code>maintenance: consolidate memory</code>».</li>
+  <li>«Когда <code>verify=fail</code> на цели с приоритетом ≥ P — поднять <code>inquiry: diagnose failure</code>».</li>
+</ul>
+
+<h4>Что НЕ делается через standing-цели</h4>
+<ul>
+  <li><strong>Валидация аргументов тулов</strong> — это слой tool-layer
+    (schema-validation).</li>
+  <li><strong>Детекция ошибок исполнения</strong> — это <code>verify</code>;
+    standing-цели могут лишь <em>превращать</em> сигнал <code>verify=fail</code> в новую подцель.</li>
+</ul>
+
+<p>
+  Проверяются в начале этапа <code>attend</code>: для каждой standing-цели —
+  чек условия против <code>FocusFrame</code>; если выстрелило — породить
+  <code>task</code>-подцель и поставить в очередь <code>goal_arbitration</code>.
+</p>
+
+<div class="decisions">
+  <h4>Решения по standing-целям</h4>
+  <ol>
+    <li>Количество standing-целей ограничено: 5–15 штук — «характер» агента.</li>
+    <li>Если их добавляет <code>reflect</code> — есть потолок M; новая standing-цель должна вытолкнуть менее эффективную по метрике «срабатываний и пользы».</li>
+    <li>Standing-цели только триггерят, не действуют сами.</li>
+  </ol>
+</div>
+</section>
+
+<!-- ============================================ -->
+<section id="operator-approval">
+<h2>6. Operator-approval flow <a class="anchor" href="#operator-approval">#</a></h2>
+
+<p>Применяется только к top-level self-целям (<code>parent_id is null AND origin = self</code>).</p>
+
+<pre><code>агент порождает цель
+  → создаётся со status = pending_approval
+  → оператор получает уведомление (лог / Slack / другой канал)
+
+оператор может:
+  - approve → status = pending → active (по очереди арбитража)
+  - reject  → архив с тегом причины
+  - modify  → правка полей, затем approve
+
+если нет ответа за TIMEOUT:
+  - эскалировать (другой канал нотификации)
+  - продолжать ждать (НЕ auto-reject)
+
+на rejected-цель:
+  - мягкий тег для reflect: «эта цель была отклонена, почему?»
+  - сигнал в самоподстройку — учится не предлагать заведомо неприемлемое</code></pre>
+
+<div class="decisions">
+  <h4>Решения по operator-approval</h4>
+  <ol>
+    <li>Эскалация по таймауту, не auto-reject.</li>
+    <li>Rejected-цели порождают мягкий сигнал в <code>reflect</code> для самоподстройки агента.</li>
+    <li>Декомпозиция уже активной цели не требует апрува.</li>
+  </ol>
+</div>
+</section>
+
+<!-- ============================================ -->
+<section id="react">
+<h2>7. ReAct: внутренний цикл <a class="anchor" href="#react">#</a></h2>
+
+<h3>Базовый вариант</h3>
+<p>
+  Classic ReAct + Reflexion-style критик и retry-with-memory + опциональный
+  <code>Plan</code>-шаг. Lite Plan-and-Execute: план есть как первоклассный
+  объект траектории, но не обязателен.
+</p>
+
+<p>
+  Макро-планирование уже сделано в метацикле через декомпозицию
+  в <code>goal_arbitration</code>. ReAct работает по листовой цели. Tactical
+  planning внутри ReAct — отдельное дело, не дублирует декомпозицию.
+</p>
+
+<h3>Структура цикла</h3>
+<pre><code>trajectory_start(active_goal, focus, memory, allowed_skills)
+
+  [optional] plan_call()             → emit Plan
+
+  loop:
+    thought_call(context)            → emit Thought
+    if thought signals stop(success/abandon): break
+
+    action_call(context)             → emit Action
+
+    if action.is_irreversible:
+      critic_call(action)            → emit Critique
+      if critique.verdict == reject: continue   # обратно к thought
+
+    execute(action)                  → emit Observation
+
+    if loop_detector.triggered: break with status=failure
+    if budget.exceeded:        break with status=budget_exceeded
+
+  if status == failure and retry_budget &gt; 0:
+    add RetryNote → loop again from trajectory_start
+
+  return Trajectory</code></pre>
+
+<h3>Внутренние подкомпоненты</h3>
+<h4>Скелет</h4>
+<ul>
+  <li><strong>планировщик</strong> — генерирует опциональный <code>Plan</code>;</li>
+  <li><strong>внутренний цикл</strong> — reasoning ↔ action ↔ observation;</li>
+  <li><strong>критик</strong> — § 11;</li>
+  <li><strong>детектор зацикливания</strong> — на повторяемости thought/action патернов;</li>
+  <li><strong>бюджет-контроллер</strong> — отслеживает потребление, решает «продолжаем / прерываем».</li>
+</ul>
+
+<h4>Внешние интерфейсы</h4>
+<ul>
+  <li><strong>tool-layer</strong> — § 10;</li>
+  <li><strong>retrieval-tool</strong> — узкий запрос к memory layer;</li>
+  <li><strong>skill-invoker</strong> — переключение режима в рамках <code>allowed_skills</code>;</li>
+  <li><strong>subagent-spawner</strong> — § 12;</li>
+  <li><strong>world-model-accessor</strong> — запрос явной модели мира через retrieval-tool (KG как один из бэкендов).</li>
+</ul>
+
+<h3>Свойства цикла</h3>
+<ul>
+  <li>Каждая итерация — две модельные инвокации (<code>thought_call</code> и <code>action_call</code>); критик — отдельный третий вызов на irreversible-действиях. Цена в токенах и латентности компенсируется качеством на слабых локальных моделях.</li>
+  <li>Бюджет жёсткий: превышение → <code>status: budget_exceeded</code>, без молчаливого rollover.</li>
+  <li>Все типы шагов — типизированные записи в <code>Trajectory</code>, не свободный поток текста.</li>
+  <li>Каждый action — через tool-layer; модель не вызывает тулы напрямую.</li>
+  <li>Ошибки тулов — отдельный тип Observation, не выкидывают цикл.</li>
+  <li>Self-критик стреляет только на <code>is_irreversible=true</code>-действиях и в post-failure.</li>
+  <li>Skill-switch внутри цикла разрешён через явный action, только в пределах <code>allowed_skills</code>.</li>
+  <li>Subagent-вызов — отдельный action-type, синхронный.</li>
+  <li>Терминальные статусы: <code>success</code> / <code>failure</code> / <code>budget_exceeded</code> / <code>abandoned</code>.</li>
+</ul>
+
+<div class="decisions">
+  <h4>Решения по ReAct</h4>
+  <ol>
+    <li>Базовый вариант — Classic + Reflexion-lite + опциональный Plan.</li>
+    <li>2 отдельных модельных вызова за итерацию (thought, action); критик — третий по флагу.</li>
+    <li><code>Thought.text</code> — свободный текст, <code>intent</code>-tag не вводим.</li>
+    <li><code>Action.expected_outcome</code> — опциональный; чаще заполняется на irreversible-действиях.</li>
+    <li>Все state-переходы в цикле — типизированные шаги <code>Trajectory</code>.</li>
+  </ol>
+</div>
+</section>
+
+<!-- ============================================ -->
+<section id="trajectory">
+<h2>8. Trajectory и шаги <a class="anchor" href="#trajectory">#</a></h2>
+
+<h3>Общая обёртка шага</h3>
+<pre><code>Step {
+  id
+  type            # thought | action | observation | critique | retry_note | plan
+  timestamp
+  cost { tokens, latency }
+  content         # типизированный payload
+  metadata
+}</code></pre>
+
+<h3>Payload по типам</h3>
+<pre><code>Thought {
+  text
+  intent          # опционально: analyze | plan | decide | reflect
+}
+
+Plan {
+  steps_intended: [{description, expected_tool?}, ...]
+  rationale
+  revision_of: step_id?    # если пересмотр предыдущего плана
+}
+
+Action {
+  tool_id
+  args                # валидирован по input-schema тула
+  is_irreversible     # resolved из tool + skill override
+  expected_outcome    # опционально — для калибровки world model
+}
+
+Observation {
+  outcome             # success | tool_error | schema_error | timeout
+                      # | permission_denied | malformed_output | semantic_error
+  payload             # валидирован по output-schema тула
+  error_detail        # если outcome != success
+}
+
+Critique {
+  target_step_id      # на какой шаг направлен
+  verdict             # ok | warning | reject
+  reasoning
+  recommendation      # опционально — что делать вместо
+  risks_identified: [...]
+}
+
+RetryNote {
+  previous_trajectory_id
+  failure_summary
+  recommendation_for_this_attempt
+}</code></pre>
+
+<h3>Trajectory целиком</h3>
+<pre><code>Trajectory {
+  id
+  goal_id
+  parent_trajectory_id        # если subagent
+  steps: [Step, ...]
+  status                      # success | failure | budget_exceeded | abandoned
+  final_state                 # полиморфен под predicate_of_success цели:
+                              #   structural   → объект под схему
+                              #   state_change → ссылка на запрос состояния среды
+                              #   judge        → свободный текст
+                              #   composite    → агрегирован из детей
+                              #   external     → placeholder + ожидаемый сигнал
+  total_cost
+  started_at, ended_at
+}</code></pre>
+</section>
+
+<!-- ============================================ -->
+<section id="skills">
+<h2>9. Скиллы <a class="anchor" href="#skills">#</a></h2>
+
+<p>
+  Скилл — переиспользуемая упаковка компетенции: специализированный промпт +
+  подмножество тулов + параметры. Это процедурная память агента.
+  <code>reflect</code> обновляет именно реестр скиллов.
+</p>
+
+<h3>Схема</h3>
+<pre><code>Skill {
+  id
+  name
+  description              # для семантического поиска и для LLM
+  version
+  parent_version_id        # для отката и сравнения версий
+
+  prompt_template          # параметризуемый system prompt
+  few_shot_examples: [...]
+  allowed_tools: [tool_id, ...]
+  required_inputs          # схема входа
+
+  preconditions            # опционально — когда применим
+  postconditions           # опционально — что ожидается после
+
+  irreversibility_overrides {
+    tool_id: bool | expression    # перекрывает базовое значение тула
+  }
+
+  metrics {
+    invocation_count
+    success_rate
+    avg_cost, avg_steps
+    failure_modes: {category: count}
+    warning_rate
+  }
+
+  status                   # active | experimental | deprecated
+  origin                   # operator | reflect | imported
+  applicable_goal_classes  # [task, inquiry, ...]
+
+  created_at, updated_at
+}</code></pre>
+
+<h3>Селекция</h3>
+<ul>
+  <li>В <code>goal_arbitration</code>: эмбеддинг описания цели → top-K по
+    <code>skill.description</code>, фильтр по <code>applicable_goal_classes</code>,
+    <code>status=active</code>, проверка <code>preconditions</code>.</li>
+  <li>На выход → <code>allowed_skills</code> для goal.</li>
+</ul>
+
+<h3>Использование внутри ReAct</h3>
+<ul>
+  <li>Один скилл активен в момент. Он диктует system prompt и <code>allowed_tools</code> для всех action'ов.</li>
+  <li>Switch разрешён через явный action <code>switch_skill(skill_id)</code> в пределах <code>allowed_skills</code>. Switch — отдельный шаг в <code>Trajectory</code>.</li>
+</ul>
+
+<h3>Лайфцикл</h3>
+<ul>
+  <li>Создаётся оператором или <code>reflect</code>.</li>
+  <li>Рефайн → создаётся новая версия, старая → <code>deprecated</code> (не удаляется — нужна для отката и сравнения).</li>
+  <li>Метрики копятся per-version: прямая прослеживаемость улучшений и регрессий.</li>
+  <li>Физическое хранилище — procedural-бэкенд memory-layer'а.</li>
+</ul>
+
+<div class="decisions">
+  <h4>Решения по скиллам</h4>
+  <ol>
+    <li>Один активный скилл в ReAct в момент времени; switch — явный action.</li>
+    <li>Источник <code>is_irreversible</code>: tool (база) → skill (override) → action (resolved).</li>
+    <li>Скиллы версионируются, deprecated-версии хранятся для сравнения и отката.</li>
+    <li>Per-version метрики копятся, это вход для <code>reflect</code> при рефайнах.</li>
+  </ol>
+</div>
+</section>
+
+<!-- ============================================ -->
+<section id="tools">
+<h2>10. Tool-layer <a class="anchor" href="#tools">#</a></h2>
+
+<h3>Схема тула</h3>
+<pre><code>Tool {
+  id
+  name
+  description              # для промпта модели
+
+  input_schema             # JSON Schema
+  output_schema            # JSON Schema
+
+  base_irreversibility     # never | conditional | always
+  conditional_predicate    # если conditional: callable(args) → bool
+
+  side_effects             # human-readable
+  category                 # info | action | communication | internal | meta
+
+  retry_policy {
+    retryable_outcomes: [transient, timeout, ...]
+    max_retries
+    backoff: linear | exponential
+  }
+
+  timeout
+  implementation_ref       # как реально дёргается (http, fn, subagent_dispatcher)
+
+  metrics {
+    invocation_count
+    success_rate_by_outcome
+    avg_latency
+    avg_cost
+  }
+}</code></pre>
+
+<h3>Пайплайн обработки action'а</h3>
+<pre><code>action_emitted_by_react
+   ↓
+schema_validate(action.args, tool.input_schema)
+   fail → Observation(outcome=schema_error, error_detail)
+   ↓
+resolve_irreversibility(tool, skill, args) → action.is_irreversible
+   if true → critic_call (в ReAct, не здесь)
+   ↓
+invoke(tool.implementation_ref, args) with timeout
+   ↓
+classify(output)
+   → success | tool_error | timeout | permission_denied | malformed_output
+   ↓
+if retryable_outcome and retries_left:
+   retry with backoff
+else:
+   schema_validate(output, tool.output_schema)
+   ↓
+Observation(outcome, payload | error_detail) + update tool.metrics</code></pre>
+
+<h3>Outcome-таксономия (v1)</h3>
+<table>
+<thead><tr><th>Outcome</th><th>Значение</th></tr></thead>
+<tbody>
+<tr><td><code>success</code></td><td>Тул отработал, валидный выход</td></tr>
+<tr><td><code>tool_error</code></td><td>Тул упал по внутренней причине</td></tr>
+<tr><td><code>schema_error</code></td><td>Невалидные аргументы или невалидный выход</td></tr>
+<tr><td><code>timeout</code></td><td>Тул не уложился в timeout</td></tr>
+<tr><td><code>permission_denied</code></td><td>Нет прав на операцию</td></tr>
+<tr><td><code>malformed_output</code></td><td>Выход непарсимый</td></tr>
+<tr><td><code>semantic_error</code></td><td>Выход парсится, но семантически некорректен (детектируется снаружи tool-layer, по постоянным проверкам)</td></tr>
+</tbody>
+</table>
+
+<div class="decisions">
+  <h4>Решения по tool-layer</h4>
+  <ol>
+    <li>Реестр тулов — глобальный. Скиллы выбирают подмножество в <code>allowed_tools</code>.</li>
+    <li><code>conditional_predicate</code> живёт в spec тула; скилл может перекрыть итог через <code>irreversibility_overrides</code>.</li>
+    <li>Outcome-таксономия минимальная (6+1 категорий), расширение по факту реальных случаев.</li>
+    <li>Описания всех тулов из <code>allowed_tools</code> текущего скилла — в system prompt, кешированы на уровне скилла, не меняются динамически по ходу trajectory.</li>
+    <li>Rate-limits / circuit-breakers — не для v1.</li>
+  </ol>
+</div>
+</section>
+
+<!-- ============================================ -->
+<section id="critic">
+<h2>11. Критик <a class="anchor" href="#critic">#</a></h2>
+
+<h3>Когда срабатывает</h3>
+<ul>
+  <li>Перед каждым action с <code>is_irreversible=true</code> — основной триггер.</li>
+  <li>После failure всей траектории, если <code>retry_budget &gt; 0</code> — генерирует <code>RetryNote</code> для следующей попытки.</li>
+  <li>Опционально по явному запросу модели через action <code>request_critique</code>.</li>
+</ul>
+
+<p>Критик НЕ стреляет на каждом шаге — это бесполезно дорого и шумно.</p>
+
+<h3>Вход</h3>
+<ul>
+  <li>Предлагаемый action (tool, args, expected_outcome);</li>
+  <li>Последние N шагов текущей <code>Trajectory</code>;</li>
+  <li>Активная цель + <code>predicate_of_success</code>;</li>
+  <li>Релевантный фрагмент world model (через retrieval-tool).</li>
+</ul>
+
+<h3>Выход</h3>
+<pre><code>Critique {
+  target_step_id
+  verdict           # ok | warning | reject
+  reasoning
+  recommendation    # опционально
+  risks_identified: [...]
+}</code></pre>
+
+<h3>Эффект на цикл</h3>
+<ul>
+  <li><code>ok</code> → action исполняется;</li>
+  <li><code>warning</code> → action исполняется, verdict логируется,
+    попадает во вход <code>reflect</code>; копится метрика
+    «warning-rate скилла»;</li>
+  <li><code>reject</code> → action не исполняется, цикл возвращается
+    к thought-call с критикой в контексте.</li>
+</ul>
+
+<div class="decisions">
+  <h4>Решения по критику</h4>
+  <ol>
+    <li>Критик — та же модель, другой промпт, явная «роль критика». Если эмпирически увидим коррелированные ошибки — переход на отдельную модель.</li>
+    <li>Глубина критика — поверхностная: «пострадает ли что-то ценное необратимо, соответствует ли action цели». Глубокая (симуляция, альтернативы) — апгрейд.</li>
+    <li>Счётчик <code>rejections_per_trajectory</code> + порог → trajectory завершается со <code>status=failure</code> и обычным RetryNote-механизмом.</li>
+    <li>Warning не блокирует, копится как метрика per-skill; рост — flag для рефактора скилла в <code>reflect</code>.</li>
+  </ol>
+</div>
+</section>
+
+<!-- ============================================ -->
+<section id="subagent">
+<h2>12. Субагент <a class="anchor" href="#subagent">#</a></h2>
+
+<p>
+  Особый action-type, порождающий дочерний ReAct под подцель. Это не
+  параллельность (v1 синхронен), а <em>иерархическая декомпозиция в рантайме</em> —
+  когда родительский ReAct в процессе понимает, что подзадача достаточно большая
+  для делегирования.
+</p>
+
+<h3>Механика</h3>
+<pre><code>action: spawn_subagent
+args: {
+  sub_goal_description
+  sub_goal_class
+  predicate_of_success
+  budget
+  allowed_skills          # выбраны вызывающим
+}
+
+→ создаётся Goal в goal store; parent_id = current goal; origin = decomposition
+→ status = active (без operator-approval, т.к. это не top-level self-цель)
+→ Trajectory родителя приостанавливается на этом шаге
+→ ReAct запускается на новой Goal (обычной инвокацией)
+→ ребёнок выполняется до своего терминала
+→ summary ребёнка возвращается родителю как Observation
+→ Goal ребёнка обновляется со статусом
+→ родитель продолжает с next thought</code></pre>
+
+<h3>Формат Observation от ребёнка</h3>
+<pre><code>{
+  child_goal_id
+  status                 # success | failure | budget_exceeded | abandoned
+  final_state
+  total_cost
+  summary_text           # короткое; родителю в контекст
+}
+
+# Полная child Trajectory доступна по ссылке для post-hoc анализа.
+# В контекст родителя не идёт — иначе контекст взорвётся.</code></pre>
+
+<h3>Tool-layer аспект</h3>
+<p>
+  <code>spawn_subagent</code> зарегистрирован как Tool категории <code>meta</code>.
+  Его <code>implementation_ref</code> указывает на <code>subagent_dispatcher</code> —
+  внутренний компонент, который создаёт Goal в store и запускает ReAct.
+</p>
+
+<div class="decisions">
+  <h4>Решения по субагенту</h4>
+  <ol>
+    <li>Sub-goal — реальная <code>Goal</code>-сущность в store (parent_id, origin=decomposition).</li>
+    <li>Лимит глубины рекурсии = 3.</li>
+    <li>Лимит активных потомков на родителя = 5.</li>
+    <li>Параллельные subagent'ы — нет, v1 синхронные.</li>
+    <li>Observation от ребёнка — сводка, не полный Trajectory.</li>
+    <li>Бюджет ребёнка задаётся родителем при spawn; бюджет родителя не уменьшается.</li>
+  </ol>
+</div>
+</section>
+
+<!-- ============================================ -->
+<section id="memory">
+<h2>13. Memory layer <a class="anchor" href="#memory">#</a></h2>
+
+<h3>Подход</h3>
+<p>
+  Гибридное хранилище из компонентов; никакой готовый фреймворк не используется,
+  чтобы политика consolidation / retrieval / decay оставалась
+  объектом исследования, а не скрытой деталью реализации.
+</p>
+
+<h3>Бэкенды и индексы</h3>
+<table>
+<thead><tr><th>Бэкенд</th><th>Реализация</th><th>Тип памяти</th><th>Назначение</th></tr></thead>
+<tbody>
+<tr>
+  <td>Episodic store</td>
+  <td><strong>LanceDB</strong> (embedded, versioned tables, time-travel)</td>
+  <td>Episodic raw</td>
+  <td>Каждый шаг ReAct — строка; goal_id и timestamp проиндексированы; эмбеддинг в той же таблице. Time-travel даёт бесплатный replay «что агент видел к шагу N».</td>
+</tr>
+<tr>
+  <td>Vector store</td>
+  <td><strong>Qdrant</strong> (local, через docker)</td>
+  <td>Semantic embeddings</td>
+  <td>Семантический retrieval reflection-extracted фактов. Богатый payload filter, чтобы политика консолидации жила в коде, не в БД.</td>
+</tr>
+<tr>
+  <td>Temporal KG</td>
+  <td><strong>Graphiti</strong> на <strong>Neo4j</strong> (docker)</td>
+  <td>Semantic + World model</td>
+  <td>Bi-temporal knowledge graph. Кастомные Pydantic-сущности → ontology наша. Validity-windows дают «что я знал в момент T».</td>
+</tr>
+<tr>
+  <td>Procedural store</td>
+  <td><strong>git</strong> (bundles) + <strong>SQLite</strong> (метрики), Voyager-pattern</td>
+  <td>Procedural</td>
+  <td>Скиллы как Python-модули + замороженный промпт + eval-set, версионируются git-тегом. Per-version метрики — таблица в SQLite.</td>
+</tr>
+<tr>
+  <td>Goal store</td>
+  <td><strong>SQLite</strong></td>
+  <td>—</td>
+  <td>Tree + depends_on, pending_verifications. Отдельно от memory, но логически смежен.</td>
+</tr>
+</tbody>
+</table>
+
+<p class="callout">
+  Готовые agent-memory фреймворки (Letta, Mem0, Zep server, Cognee) намеренно отвергнуты:
+  они прячут политики consolidation / decay / retrieval, которые мы исследуем.
+  Reference impls для изучения: MIRIX (memory-manager pattern), Voyager (skill registry pattern).
+</p>
+
+<h3>Единый API</h3>
+<pre><code>recall(query, types, k, time_range, filters, ...) → MemoryBundle
+
+# types: ['vector', 'graph', 'episodic', 'procedural'] — подмножество
+# Возвращает unified bundle с записями из всех запрошенных бэкендов.
+
+# Используется и в meta-recall (грубый запрос с низким k),
+# и внутри ReAct через retrieval-tool (узкий запрос с высоким k по теме).</code></pre>
+
+<div class="decisions">
+  <h4>Решения по memory layer</h4>
+  <ol>
+    <li>Подход — гибридное хранилище на компонентах, не готовый фреймворк.</li>
+    <li>Четыре бэкенда: vector / temporal KG / episodic-log / procedural.</li>
+    <li>Один API <code>recall</code>, параметризованный по типам и фильтрам.</li>
+    <li>World model хранится в temporal KG (часть memory layer'а).</li>
+    <li>Тонкая политика consolidation/decay/retrieval — открытая, исследуется отдельно.</li>
+  </ol>
+</div>
+</section>
+
+<!-- ============================================ -->
+<section id="world-model">
+<h2>14. World model <a class="anchor" href="#world-model">#</a></h2>
+
+<h3>Два слоя</h3>
+<ul>
+  <li><strong>Неявная (в весах LLM).</strong> Всегда присутствует через
+    pre-training. Не редактируема напрямую. Используется по умолчанию там, где
+    явная модель молчит.</li>
+  <li><strong>Явная (поверх неявной).</strong> Структурированное представление
+    среды агента. Поддерживается отдельно. В случае конфликта с неявной —
+    в промпте явно ставится приоритет: «факты из контекста перевешивают
+    общее знание».</li>
+</ul>
+
+<h3>Что хранится в явной модели</h3>
+<ul>
+  <li>Сущности и их состояния (типизированные, с timestamp);</li>
+  <li>Отношения между сущностями;</li>
+  <li>Affordances — какие действия/тулы что меняют;</li>
+  <li>Предсказания и их подтверждения/опровержения (для калибровки);</li>
+  <li>Оценки неопределённости.</li>
+</ul>
+
+<h3>Хранение и обновление</h3>
+<ul>
+  <li>Темпоральный KG (Graphiti / Zep / своё на Neo4j) — часть memory layer'а.</li>
+  <li>Обновляется в этапе <code>world_update</code> метацикла, после <code>verify</code>:
+    <ul>
+      <li>дельта состояния среды после ReAct'а → обновление сущностей и связей;</li>
+      <li>сравнение <code>Action.expected_outcome</code> (если был) с реальностью → запись калибровки.</li>
+    </ul>
+  </li>
+</ul>
+
+<h3>Использование</h3>
+<p>
+  Через стандартный <code>recall</code> — KG это один из бэкендов памяти,
+  его выдача попадает в <code>MemoryBundle</code>. Так world model автоматически
+  попадает в каждый LLM-вызов через стандартный контекстный канал, без
+  отдельной коммутации. Внутри ReAct модель может делать узкие запросы
+  через retrieval-tool.
+</p>
+
+<div class="decisions">
+  <h4>Решения по world model</h4>
+  <ol>
+    <li>Явная модель отделена от неявной; в конфликтах приоритет явной через системный промпт.</li>
+    <li>Хранится в temporal KG, который сам — бэкенд memory layer'а.</li>
+    <li>Обновляется в отдельном этапе <code>world_update</code> после <code>verify</code>.</li>
+    <li>В каждый LLM-вызов попадает через <code>recall</code>, без отдельного канала.</li>
+  </ol>
+</div>
+</section>
+
+<!-- ============================================ -->
+<section id="reflect">
+<h2>15. Reflect <a class="anchor" href="#reflect">#</a></h2>
+
+<h3>Что обновляет</h3>
+<ul>
+  <li>Реестр скиллов (создание новых версий, deprecation, новые скиллы);</li>
+  <li>Стратегии attention (веса в score-функции, паттерны urgency);</li>
+  <li>Standing-цели (добавление/выталкивание);</li>
+  <li>Семантические факты в KG;</li>
+  <li>Извлечённые абстракции/паттерны.</li>
+</ul>
+
+<h3>Триггеры и режимы</h3>
+<table>
+<thead><tr><th>Триггер</th><th>Условие</th><th>Режим reflect</th></tr></thead>
+<tbody>
+<tr>
+  <td>Volume</td>
+  <td>5–10 траекторий с прошлого reflect</td>
+  <td><code>batch_consolidation</code> — паттерны успехов и failure-моды</td>
+</tr>
+<tr>
+  <td>Event: <code>verify=fail</code></td>
+  <td>Конкретная неудача</td>
+  <td><code>failure_analysis</code> — разбор одной траектории</td>
+</tr>
+<tr>
+  <td>Event: budget exceeded</td>
+  <td>Превышение бюджета</td>
+  <td><code>budget_postmortem</code></td>
+</tr>
+<tr>
+  <td>Event: prediction divergence</td>
+  <td>Большое расхождение <code>expected_outcome</code> и реальности из <code>world_update</code></td>
+  <td><code>world_recalibration</code></td>
+</tr>
+<tr>
+  <td>Event: novelty relevant</td>
+  <td>Высокий <code>novelty_score</code> в <code>attend</code>, оказавшийся релевантным</td>
+  <td><code>explanation_extraction</code> в world model</td>
+</tr>
+<tr>
+  <td>Schedule</td>
+  <td>Раз в ~50 тиков</td>
+  <td><code>periodic_review</code> — широкий sweep по окну опыта</td>
+</tr>
+</tbody>
+</table>
+
+<h3>Почему не каждый тик</h3>
+<p>
+  Reflect каждый тик имеет несколько серьёзных минусов, не связанных с ценой токенов:
+</p>
+<ul>
+  <li><strong>N=1 для извлечения паттерна</strong> — переобобщение или тривиальный итог;</li>
+  <li><strong>Policy churn</strong> — система никогда не стоит на месте, нельзя мерить надёжность отдельной версии (прямо рубит критерий прогресса);</li>
+  <li><strong>Загрязнение семантической памяти</strong> низкокачественными извлечениями;</li>
+  <li><strong>Самомодификационное компаундирование</strong> — шум reflect'а накапливается в реестре скиллов;</li>
+  <li><strong>Диагностическая непрослеживаемость</strong> — изменение в скилле нельзя привязать к конкретному пакету опыта;</li>
+  <li><strong>Дилюция семантики</strong> — триггерный reflect имеет фокус («после failures разберись»), reflect каждый тик не знает, на что смотреть.</li>
+</ul>
+
+<div class="decisions">
+  <h4>Решения по reflect</h4>
+  <ol>
+    <li>Триггерный, не каждый тик; конкретные триггеры и режимы см. таблицу.</li>
+    <li>У reflect есть тип/режим, определяемый триггером — даёт фокус промпта и прослеживаемость источника изменений.</li>
+    <li>Дешёвые скалярные апдейты (счётчики, метрики) не относятся к reflect — они пишутся в <code>store</code> постоянно.</li>
+    <li>Параметры триггеров (N, K, пороги) конфигурируемы для экспериментов.</li>
+  </ol>
+</div>
+</section>
+
+<!-- ============================================ -->
+<section id="cross-cutting">
+<h2>16. Сквозные свойства <a class="anchor" href="#cross-cutting">#</a></h2>
+
+<h3>Бюджеты</h3>
+<ul>
+  <li>Три уровня: на этап, на цель, глобальный (системный).</li>
+  <li>Превышение — событие, не молчаливый rollover.</li>
+  <li>Дефолты задаёт оператор; LLM и <code>reflect</code> могут предлагать; финальное слово — оператор.</li>
+</ul>
+
+<h3>Наблюдаемость</h3>
+<ul>
+  <li>Каждый этап эмитит trace-event (вход, выход, latency, cost, причина перехода).</li>
+  <li>Каждый шаг ReAct — типизированный объект в <code>Trajectory</code>.</li>
+  <li>Без подробной телеметрии held-out evaluation не даёт причинно-интерпретируемых цифр.</li>
+</ul>
+
+<h3>Воспроизводимость</h3>
+<ul>
+  <li>Состояние (goal stack + memory snapshot + RNG seed + лог входов <code>sense</code>) — достаточное условие replay'я.</li>
+  <li>Без воспроизводимости честно мерить надёжность нельзя.</li>
+</ul>
+
+<h3>Сбои и graceful degradation</h3>
+<ul>
+  <li>Любой LLM-вызов может вернуть мусор; retry с backoff на уровне этапа.</li>
+  <li>Если <code>verify</code> не работает — запись «недопроверено», не зацикливание.</li>
+  <li>Если <code>reflect</code> падает — продолжаем без обновления скиллов.</li>
+</ul>
+
+<h3>Эволюция</h3>
+<ul>
+  <li>Скиллы, политики attention, стратегии арбитража — изменяемые объекты, обновляются через <code>reflect</code>.</li>
+  <li>Версионируются; можно откатить и сравнить версии.</li>
+</ul>
+</section>
+
+<!-- ============================================ -->
+<section id="stack">
+<h2>17. Стек реализации <a class="anchor" href="#stack">#</a></h2>
+
+<p>
+  Этот раздел фиксирует конкретные технологии и инфраструктуру v0 — после
+  обзора готовых memory-инструментов (2026) и определения LLM-сервинга.
+</p>
+
+<h3>Сводная таблица</h3>
+<table>
+<thead><tr><th>Слой</th><th>Решение</th><th>Где работает</th></tr></thead>
+<tbody>
+<tr><td>Язык</td><td>Python 3.11+</td><td>везде</td></tr>
+<tr><td>Pkg manager</td><td><code>uv</code> + <code>pyproject.toml</code> + <code>uv.lock</code></td><td>dev машина</td></tr>
+<tr><td>Runtime</td><td>Docker-контейнер агента; <code>docker-compose</code> оркестрирует</td><td>где запущен агент</td></tr>
+<tr><td>LLM serving</td><td><code>ll-router</code> 0.1.0 (llama.cpp под капотом)</td><td>llmserver @ 192.168.0.111:8000</td></tr>
+<tr><td>LLM client</td><td>LiteLLM</td><td>в коде агента</td></tr>
+<tr><td>v0 default model</td><td><code>gemma-26b-a4b</code> (MoE 4B active, Q4, ctx 128k, parallel=2)</td><td>—</td></tr>
+<tr><td>Embeddings</td><td>план: <code>/v1/embeddings</code> на ll-router; fallback: <code>fastembed</code> + BGE-M3</td><td>в коде</td></tr>
+<tr><td>Schema validation</td><td>Pydantic v2</td><td>в коде</td></tr>
+<tr><td>Episodic memory</td><td><strong>LanceDB</strong> (embedded, versioned, time-travel)</td><td>файловая система</td></tr>
+<tr><td>Semantic vector</td><td><strong>Qdrant</strong></td><td>docker</td></tr>
+<tr><td>World model</td><td><strong>Graphiti</strong> + <strong>Neo4j</strong></td><td>docker (Neo4j) + Python client (Graphiti)</td></tr>
+<tr><td>Procedural store</td><td>git (bundles) + SQLite (метрики), Voyager pattern</td><td>файловая система</td></tr>
+<tr><td>Goal store</td><td>SQLite</td><td>файловая система</td></tr>
+<tr><td>Operator channel</td><td>CLI</td><td>dev машина</td></tr>
+<tr><td>Logging</td><td>structlog + JSONL traces</td><td>файловая система</td></tr>
+<tr><td>Конфиги</td><td>YAML + pydantic-settings</td><td>файловая система</td></tr>
+<tr><td>Tests</td><td>pytest + capture-and-replay</td><td>dev машина</td></tr>
+<tr><td>Eval harness</td><td><strong>MemoryAgentBench</strong> (ICLR 2026)</td><td>dev машина</td></tr>
+</tbody>
+</table>
+
+<h3>LLM-сервер (llmserver, 192.168.0.111)</h3>
+<table>
+<thead><tr><th>Ресурс</th><th>Значение</th></tr></thead>
+<tbody>
+<tr><td>CPU</td><td>AMD Ryzen Threadripper PRO 3975WX (32C/64T)</td></tr>
+<tr><td>RAM</td><td>503 GiB</td></tr>
+<tr><td>GPU</td><td>2× NVIDIA RTX 3090 (24 GiB × 2 = 48 GiB VRAM)</td></tr>
+<tr><td>API</td><td>OpenAI-совместимый: <code>/v1/chat/completions</code>, <code>/v1/completions</code>, <code>/v1/models</code></td></tr>
+<tr><td>Embeddings endpoint</td><td>пока отсутствует, планируется добавить</td></tr>
+</tbody>
+</table>
+
+<h3>Доступные модели</h3>
+<table>
+<thead><tr><th>ID</th><th>Тип</th><th>Параметры</th><th>В v0?</th></tr></thead>
+<tbody>
+<tr><td><code>gemma-26b-a4b</code></td><td>MoE, ~4B active</td><td>Q4_K_M, ctx 128k, GPU, slot-caching, parallel=2</td><td><strong>да, единственная</strong></td></tr>
+<tr><td><code>gemma-31b-mtp</code></td><td>dense 31B + MTP speculative</td><td>Q4_K_M, ctx 64k, GPU, draft-model</td><td>в резерве (main-tier позже)</td></tr>
+<tr><td><code>qwen-35b</code></td><td>MoE 3B active, uncensored</td><td>Q4_K_P, GPU</td><td>в резерве (heavy-tier позже)</td></tr>
+</tbody>
+</table>
+
+<h3>Карта движущихся частей</h3>
+<pre><code>┌─────────────────────────────────────────────────────────────┐
+│ Docker-контейнер агента                                     │
+│                                                             │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │ Python-процесс агента                                │   │
+│  │  - metacycle/  (sense, attend, ..., store)           │   │
+│  │  - react/      (loop, critic, tool_layer, subagent)  │   │
+│  │  - memory/     (unified recall API)                  │   │
+│  │  - llm/        (LiteLLM)                             │   │
+│  └──────────────────────────────────────────────────────┘   │
+│         │            │             │             │           │
+│         ▼            ▼             ▼             ▼           │
+│  ┌──────────┐ ┌──────────┐  ┌──────────┐  ┌──────────────┐  │
+│  │ LanceDB  │ │ SQLite   │  │ Qdrant   │  │ Neo4j +      │  │
+│  │ (files)  │ │ (files)  │  │ (docker) │  │ Graphiti     │  │
+│  │ Episodic │ │ Goals +  │  │ Semantic │  │ (docker)     │  │
+│  │          │ │ Procedur │  │ vector   │  │ World model  │  │
+│  └──────────┘ └──────────┘  └──────────┘  └──────────────┘  │
+└───────────────────────────┬─────────────────────────────────┘
+                            │ HTTP (LiteLLM)
+                            ▼
+              ┌─────────────────────────────┐
+              │ llmserver (192.168.0.111)   │
+              │  ll-router :8000            │
+              │   └ gemma-26b-a4b  (v0)     │
+              │   gemma-31b-mtp, qwen-35b   │
+              │   доступны, не используем   │
+              └─────────────────────────────┘
+</code></pre>
+
+<div class="decisions">
+  <h4>Решения по стеку и деплою</h4>
+  <ol start="52">
+    <li>Runtime — Docker-контейнер агента; изоляция от хоста; docker-compose оркестрирует агента + Qdrant + Neo4j.</li>
+    <li>LLM serving — внешний ll-router; агент не запускает свои llama.cpp-процессы.</li>
+    <li>В v0 — единственная модель <code>gemma-26b-a4b</code>; multi-tier откладывается.</li>
+    <li>LiteLLM как универсальный LLM-клиент; смена бэкенда не требует кода.</li>
+    <li>Embeddings — попросить добавить <code>/v1/embeddings</code> на ll-router; fastembed (BGE-M3) как fallback в коде.</li>
+    <li>Episodic — LanceDB (versioned, time-travel) вместо плоских JSONL-файлов.</li>
+    <li>Vector — Qdrant в docker.</li>
+    <li>World model — Graphiti на Neo4j (оба в docker).</li>
+    <li>Procedural — git (bundles) + SQLite (метрики), паттерн Voyager.</li>
+    <li>Зависимости — <code>pyproject.toml</code> + <code>uv.lock</code> для воспроизводимости research.</li>
+    <li>Eval harness — MemoryAgentBench, подключается с v0.</li>
+    <li>Отвергнуто: Letta, Mem0, Zep server, Cognee (прячут политики); Ollama/vLLM (не нужны); LangGraph/CrewAI/AutoGen (оркестратор пишем сами); Kuzu (архивирован); Memgraph/FalkorDB (не OSI).</li>
+  </ol>
+</div>
+</section>
+
+<!-- ============================================ -->
+<section id="decisions">
+<h2>18. Журнал решений (сводный) <a class="anchor" href="#decisions">#</a></h2>
+
+<p class="small">
+  Все принятые решения по архитектуре v0.2, в одном месте. Нумерация сквозная.
+</p>
+
+<div class="decisions">
+  <h4>Метацикл</h4>
+  <ol>
+    <li>Цикл синхронный, без прерываний (v1).</li>
+    <li>Обмен данными между этапами — direct sequential calls + trace-log.</li>
+    <li>Push-события — в очередь, обрабатываются следующим тиком; рестарта тика нет.</li>
+    <li>Один ReAct в момент времени; параллелизм — только через <code>spawn_subagent</code>, в v1 синхронный.</li>
+    <li>Состав этапов: <code>sense → attend → goal_arbitration → recall → react_loop → verify → world_update → [reflect] → store</code>.</li>
+    <li>Большинство тиков лёгкие; тяжёлая часть (ReAct, reflect) условна.</li>
+  </ol>
+</div>
+
+<div class="decisions">
+  <h4>Подсистема целей</h4>
+  <ol start="7">
+    <li>Иерархия — tree + <code>depends_on</code> (DAG-lite).</li>
+    <li>Бюджеты независимы по целям (вариант A); дефолты — оператор.</li>
+    <li>Predicate-types — все пять: <code>structural</code>, <code>state_change</code>, <code>judge</code>, <code>composite</code>, <code>external</code>.</li>
+    <li>Приоритет на <code>structural</code> / <code>state_change</code> для research-валидности.</li>
+    <li>Aggregation в v1 — <code>all</code> + <code>custom</code>.</li>
+    <li>Классы — все пять: <code>task</code>, <code>inquiry</code>, <code>maintenance</code>, <code>standing</code>, <code>practice</code>.</li>
+    <li>Self-цели верхнего уровня — через operator-approval; эскалация по таймауту, не auto-reject.</li>
+    <li>Verify — immediate-leaf / composite / deferred (через <code>pending_verifications</code>).</li>
+  </ol>
+</div>
+
+<div class="decisions">
+  <h4>Standing-цели</h4>
+  <ol start="15">
+    <li>5–15 standing-целей — «характер» агента.</li>
+    <li>Reflect-генерируемые standing-цели имеют потолок; новая выталкивает менее эффективную.</li>
+    <li>Standing-цели только триггерят подцели; сами не действуют.</li>
+  </ol>
+</div>
+
+<div class="decisions">
+  <h4>ReAct</h4>
+  <ol start="18">
+    <li>Базовый вариант — Classic + Reflexion-lite + опциональный Plan.</li>
+    <li>2 модельных вызова за итерацию (<code>thought</code> + <code>action</code>); критик — третий по флагу.</li>
+    <li><code>Thought</code> — свободный текст без обязательного <code>intent</code>-tag.</li>
+    <li><code>Action.expected_outcome</code> — опциональный; чаще на irreversible-действиях.</li>
+    <li>Все state-переходы — типизированные шаги <code>Trajectory</code>.</li>
+    <li>Goal-decomposition (макро) и tactical planning (внутри ReAct) — два разных уровня.</li>
+  </ol>
+</div>
+
+<div class="decisions">
+  <h4>Скиллы и tool-layer</h4>
+  <ol start="24">
+    <li>Один активный скилл в ReAct в момент; switch — явный action.</li>
+    <li>Источник <code>is_irreversible</code>: tool (база) → skill (override) → action (resolved).</li>
+    <li>Реестр тулов глобальный; скиллы выбирают подмножество в <code>allowed_tools</code>.</li>
+    <li>Скиллы версионируются; deprecated-версии остаются для сравнения и отката.</li>
+    <li>Outcome-таксономия минимальная: 6+1 категорий; расширение по факту.</li>
+    <li>Описания тулов из <code>allowed_tools</code> — в system prompt, кешируются на скилле.</li>
+    <li>Rate-limits / circuit-breakers — не для v1.</li>
+  </ol>
+</div>
+
+<div class="decisions">
+  <h4>Критик</h4>
+  <ol start="31">
+    <li>Та же модель, другой промпт; явная роль критика. Переход на отдельную модель — апгрейд при коррелированных ошибках.</li>
+    <li>Поверхностная глубина в v1.</li>
+    <li>Reject-counter per-trajectory с порогом → failure + RetryNote.</li>
+    <li>Warning не блокирует, копится как per-skill метрика.</li>
+  </ol>
+</div>
+
+<div class="decisions">
+  <h4>Субагент</h4>
+  <ol start="35">
+    <li>Sub-goal — реальная Goal в store (origin=decomposition).</li>
+    <li>Лимит глубины рекурсии = 3.</li>
+    <li>Лимит активных потомков на родителя = 5.</li>
+    <li>Параллельные subagent'ы — нет, v1 синхронные.</li>
+    <li>Observation от ребёнка — сводка, полный Trajectory доступен по ссылке.</li>
+    <li>Бюджет ребёнка задаётся родителем при spawn; бюджет родителя на это не уменьшается.</li>
+  </ol>
+</div>
+
+<div class="decisions">
+  <h4>Memory и world model</h4>
+  <ol start="41">
+    <li>Гибридное хранилище на компонентах, не готовый фреймворк.</li>
+    <li>Бэкенды: vector / temporal KG / episodic-log / procedural.</li>
+    <li>Единый API <code>recall</code>, параметризованный по типам.</li>
+    <li>World model хранится в temporal KG как часть memory layer'а.</li>
+    <li>Явная world model имеет приоритет над неявной в промпте.</li>
+    <li>World model обновляется в этапе <code>world_update</code> после <code>verify</code>.</li>
+  </ol>
+</div>
+
+<div class="decisions">
+  <h4>Reflect</h4>
+  <ol start="47">
+    <li>Триггерный, не каждый тик.</li>
+    <li>Триггеры: volume (5–10) / события (fail, budget, divergence, novelty) / schedule (~50 тиков).</li>
+    <li>Тип/режим reflect выводится из триггера.</li>
+    <li>Дешёвые скалярные апдейты — постоянно через <code>store</code>, не через reflect.</li>
+    <li>Параметры триггеров конфигурируемы.</li>
+  </ol>
+</div>
+</section>
+
+<!-- ============================================ -->
+<section id="open">
+<h2>19. Открытые вопросы <a class="anchor" href="#open">#</a></h2>
+
+<div class="open-q">
+  <h4>Не зафиксировано в v0.2</h4>
+  <ul>
+    <li><strong>Memory layer — детальная политика consolidation, decay, retrieval.</strong>
+      Это объект исследования, не реализационная деталь. Отдельный документ.</li>
+    <li><strong>World model — схема узлов KG</strong>, кастомные Pydantic-сущности
+      через Graphiti, политика разрешения конфликтов между явным и неявным,
+      формат калибровки предсказаний.</li>
+    <li><strong>Reflect — детальная спецификация каждого режима</strong>
+      (что именно меняется в скилле под <code>batch_consolidation</code>,
+      какие сигналы агрегируются в <code>periodic_review</code>, и т.д.).</li>
+    <li><strong>Конкретный набор метрик надёжности и held-out задач</strong>
+      поверх MemoryAgentBench. Как численно разделить capability vs reliability.</li>
+    <li><strong>Defaults для бюджетов</strong> по классам целей,
+      приоритетам и скиллам. Подбирается эмпирически.</li>
+    <li><strong>Конкретные standing-цели стартового набора.</strong>
+      Минимальные 5–10 политик для bootstrapping.</li>
+    <li><strong>Loop-detector — алгоритм.</strong> Простой n-gram над action_ids
+      или embedding-similarity между thought'ами; пороги.</li>
+    <li><strong>Recursion depth и siblings лимиты</strong> — выбраны эмпирически
+      (3 и 5), но требуется валидация на реальных задачах.</li>
+    <li><strong>Endpoint <code>/v1/embeddings</code> на ll-router</strong> —
+      внешнее ожидание; до появления используется fastembed (BGE-M3) локально.</li>
+  </ul>
+</div>
+
+<p class="callout">
+  Эти вопросы откладываются в собственные документы по мере спуска в реализацию.
+  Часть из них (consolidation/decay, метрики, режимы reflect) — самостоятельные
+  исследовательские темы.
+</p>
+</section>
+
+</div>
+</body>
+</html>
