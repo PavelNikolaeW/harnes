@@ -33,6 +33,8 @@ class PerTaskResult:
     failure_mode: str | None = None
     cost_tokens: int = 0
     steps: int = 0
+    latency_s: float = 0.0  # v1.0 #32: wall-clock на эту попытку
+    attempt: int = 0  # v1.0 #32: индекс попытки (0..repeat_k-1)
     notes: dict[str, Any] = field(default_factory=dict)
 
 
@@ -103,6 +105,10 @@ def run_evaluation(
     history_repo: Any = None,
     skill_registry: Any = None,
     notes: str = "",
+    *,
+    eval_set: str = "",
+    held_out: bool = False,
+    repeat_k: int = 1,
 ) -> EvalResult:
     """Главный entry-point harness'а.
 
@@ -114,46 +120,67 @@ def run_evaluation(
       сохраняется в SQLite с git_sha и skill_versions snapshot
     - skill_registry: опционально — для snapshot'а skill-версий в history
     - notes: свободный текст для записи в history (например, «baseline после #26»)
+    - eval_set: v1.0 #31 — короткий идентификатор набора задач
+    - held_out: v1.0 #31 — флаг held-out (не смотреть при разработке)
+    - repeat_k: v1.0 #32 — повторить каждую task k раз (pass@k / stable@k)
     """
+    import time
     from datetime import UTC, datetime
 
     started_at = datetime.now(UTC)
 
     result = EvalResult(name=adapter.name)
-    for i, (task_id, goal) in enumerate(adapter.tasks()):
-        if limit is not None and i >= limit:
-            break
-        log.info("eval.task.start", adapter=adapter.name, task_id=task_id)
-        try:
-            traj = agent_run(goal)
-        except Exception as exc:  # noqa: BLE001
-            log.error("eval.task.crashed", task_id=task_id, error=str(exc))
-            result.per_task.append(
-                PerTaskResult(
-                    task_id=task_id,
-                    success=False,
-                    failure_mode=f"agent_crash:{type(exc).__name__}",
-                )
-            )
-            continue
+    # Материализуем задачи один раз — иначе при k>1 нельзя их пройти повторно.
+    all_tasks = list(adapter.tasks())
+    if limit is not None:
+        all_tasks = all_tasks[:limit]
 
-        success, failure_mode = adapter.verify(task_id, traj)
-        per = PerTaskResult(
-            task_id=task_id,
-            success=success,
-            trajectory=traj,
-            failure_mode=failure_mode,
-            cost_tokens=traj.total_cost.tokens,
-            steps=len(traj.steps),
-        )
-        result.per_task.append(per)
-        log.info(
-            "eval.task.done",
-            adapter=adapter.name,
-            task_id=task_id,
-            success=success,
-            failure_mode=failure_mode,
-        )
+    for task_id, goal in all_tasks:
+        for attempt in range(repeat_k):
+            log.info(
+                "eval.task.start",
+                adapter=adapter.name,
+                task_id=task_id,
+                attempt=attempt,
+                repeat_k=repeat_k,
+            )
+            t0 = time.monotonic()
+            try:
+                traj = agent_run(goal)
+            except Exception as exc:  # noqa: BLE001
+                log.error("eval.task.crashed", task_id=task_id, error=str(exc))
+                result.per_task.append(
+                    PerTaskResult(
+                        task_id=task_id,
+                        success=False,
+                        failure_mode=f"agent_crash:{type(exc).__name__}",
+                        latency_s=time.monotonic() - t0,
+                        attempt=attempt,
+                    )
+                )
+                continue
+            latency = time.monotonic() - t0
+
+            success, failure_mode = adapter.verify(task_id, traj)
+            per = PerTaskResult(
+                task_id=task_id,
+                success=success,
+                trajectory=traj,
+                failure_mode=failure_mode,
+                cost_tokens=traj.total_cost.tokens,
+                steps=len(traj.steps),
+                latency_s=latency,
+                attempt=attempt,
+            )
+            result.per_task.append(per)
+            log.info(
+                "eval.task.done",
+                adapter=adapter.name,
+                task_id=task_id,
+                attempt=attempt,
+                success=success,
+                failure_mode=failure_mode,
+            )
 
     ended_at = datetime.now(UTC)
 
@@ -161,6 +188,8 @@ def run_evaluation(
         "eval.run.done",
         adapter=adapter.name,
         tasks=len(result.per_task),
+        unique_tasks=len({r.task_id for r in result.per_task}),
+        repeat_k=repeat_k,
         success_rate=result.success_rate,
     )
 
@@ -177,6 +206,9 @@ def run_evaluation(
             ended_at=ended_at,
             skill_versions=skill_versions,
             notes=notes,
+            eval_set=eval_set,
+            held_out=held_out,
+            repeat_k=repeat_k,
         )
 
     return result

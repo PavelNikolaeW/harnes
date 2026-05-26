@@ -649,6 +649,27 @@ def run_loop(interval: float, stub: bool, max_ticks: int | None, world: bool) ->
     default="",
     help="Произвольный текст в eval_runs.notes (например, 'baseline before #26').",
 )
+@click.option(
+    "--eval-set",
+    "eval_set",
+    default="",
+    help="v1.0: короткий идентификатор набора задач ('mab_dev_ar', 'mab_holdout_lru').",
+)
+@click.option(
+    "--held-out",
+    is_flag=True,
+    default=False,
+    help="v1.0: пометить прогон как held-out (не смотреть при разработке). "
+    "eval-history по умолчанию его НЕ показывает.",
+)
+@click.option(
+    "--repeat-k",
+    "repeat_k",
+    type=int,
+    default=1,
+    show_default=True,
+    help="v1.0: повторить каждую task k раз для pass@k / stable@k.",
+)
 def run_eval(
     adapter_name: str,
     tasks_file: Path | None,
@@ -660,6 +681,9 @@ def run_eval(
     stub: bool,
     no_history: bool,
     notes: str,
+    eval_set: str,
+    held_out: bool,
+    repeat_k: int,
 ) -> None:
     """Прогон benchmark adapter'а через нашего агента. Печатает EvalResult.
 
@@ -761,10 +785,17 @@ def run_eval(
     if not no_history:
         history_repo = EvalHistoryStore(settings.eval.history_db_path)
 
+    if held_out:
+        click.echo(
+            "  ⚠  held-out=True. Не смотри метрики при разработке —"
+            " только перед релизом / в финальном замере."
+        )
+
     click.echo(
         f"Running {adapter.name} (limit={limit or 'all'}, "
         f"agent={'stub' if stub else 'real LLM'}, "
-        f"history={'on' if history_repo else 'off'})..."
+        f"history={'on' if history_repo else 'off'}, "
+        f"eval_set={eval_set or '(none)'}, repeat_k={repeat_k})..."
     )
     result = run_evaluation(
         adapter,
@@ -773,10 +804,14 @@ def run_eval(
         history_repo=history_repo,
         skill_registry=skill_registry,
         notes=notes,
+        eval_set=eval_set,
+        held_out=held_out,
+        repeat_k=repeat_k,
     )
 
     click.echo(f"\n=== Result: {result.name} ===")
-    click.echo(f"  tasks       : {len(result.per_task)}")
+    unique_tasks = len({r.task_id for r in result.per_task})
+    click.echo(f"  attempts    : {len(result.per_task)} ({unique_tasks} unique tasks × {repeat_k})")
     click.echo(f"  success_rate: {result.success_rate:.1%}")
     click.echo(f"  avg_steps   : {result.avg_steps:.1f}")
     click.echo(f"  avg_tokens  : {result.avg_cost_tokens:.0f}")
@@ -785,16 +820,37 @@ def run_eval(
         for mode, count in result.failure_modes.items():
             click.echo(f"    {mode}: {count}")
 
-    click.echo("\nPer-task:")
-    for r in result.per_task:
-        marker = "✓" if r.success else "✗"
+    # v1.0 #32: reliability metrics
+    if held_out:
+        click.echo("\n(reliability metrics скрыты для held-out прогона — см. eval-history --include-held-out)")
+    else:
+        from harnes.eval.history import compute_reliability_metrics
+
+        rm = compute_reliability_metrics(result.per_task, repeat_k)
+        click.echo("\nReliability:")
+        click.echo(f"  pass@{repeat_k:<2}      : {rm['pass_at_k']:.1%}")
+        click.echo(f"  stable@{repeat_k:<2}    : {rm['stable_at_k']:.1%}")
+        click.echo(f"  p50 / p95 steps   : {rm['p50_steps']:.1f}  /  {rm['p95_steps']:.1f}")
         click.echo(
-            f"  {marker} {r.task_id} (steps={r.steps}, tokens={r.cost_tokens})"
-            + (f" — {r.failure_mode}" if r.failure_mode else "")
+            f"  p50 / p95 latency : {rm['p50_latency_s']:.1f}s  /  {rm['p95_latency_s']:.1f}s"
         )
+        click.echo(f"  failure_entropy   : {rm['failure_entropy']:.2f} bit")
+
+    if not held_out:
+        click.echo("\nPer-task:")
+        for r in result.per_task:
+            marker = "✓" if r.success else "✗"
+            attempt_tag = f"#{r.attempt}" if repeat_k > 1 else ""
+            click.echo(
+                f"  {marker} {r.task_id}{attempt_tag} (steps={r.steps}, tokens={r.cost_tokens})"
+                + (f" — {r.failure_mode}" if r.failure_mode else "")
+            )
 
     if history_repo is not None:
-        latest = history_repo.latest(adapter_name=result.name)
+        latest = history_repo.latest(
+            adapter_name=result.name,
+            include_held_out=held_out,
+        )
         if latest is not None:
             click.echo(f"\nRecorded as run #{latest.id} in eval-history.")
 
@@ -804,29 +860,61 @@ def run_eval(
 
 @cli.command("eval-history")
 @click.option("--adapter", default=None, help="Фильтр по adapter_name")
+@click.option(
+    "--eval-set",
+    "eval_set",
+    default=None,
+    help="v1.0: фильтр по eval_set (например, 'mab_dev_ar', 'mab_holdout_lru').",
+)
+@click.option(
+    "--include-held-out",
+    is_flag=True,
+    default=False,
+    help="v1.0: показать held-out прогоны (по умолчанию скрыты).",
+)
 @click.option("--limit", type=int, default=20, show_default=True)
-def eval_history_cmd(adapter: str | None, limit: int) -> None:
-    """Список последних прогонов benchmark'а с метриками."""
+def eval_history_cmd(
+    adapter: str | None,
+    eval_set: str | None,
+    include_held_out: bool,
+    limit: int,
+) -> None:
+    """Список последних прогонов benchmark'а с метриками.
+
+    По умолчанию held-out прогоны СКРЫТЫ (research hygiene). Используй
+    --include-held-out перед релизным замером.
+    """
     from harnes.eval import EvalHistoryStore
 
     settings = get_settings()
     store = EvalHistoryStore(settings.eval.history_db_path)
-    runs = store.list_runs(adapter_name=adapter, limit=limit)
+    runs = store.list_runs(
+        adapter_name=adapter,
+        eval_set=eval_set,
+        include_held_out=include_held_out,
+        limit=limit,
+    )
 
     if not runs:
         click.echo("(no runs)")
         return
 
+    if include_held_out:
+        click.echo("  (showing held-out runs — релизный замер, не оптимизировать против)")
     click.echo(
-        f"{'id':>4}  {'adapter':<22}  {'tasks':>5}  {'success':>7}  "
-        f"{'steps':>5}  {'tokens':>6}  {'git':>8}  started_at"
+        f"{'id':>4}  {'adapter':<22}  {'set':<18}  {'h-o':>3}  "
+        f"{'k':>2}  {'tasks':>5}  {'succ':>6}  {'p@k':>6}  "
+        f"{'stab':>6}  {'p95s':>4}  {'fEnt':>4}  {'git':>8}  started_at"
     )
-    click.echo("-" * 100)
+    click.echo("-" * 130)
     for r in runs:
+        ho_marker = "*" if r.held_out else " "
         click.echo(
-            f"{r.id:>4}  {r.adapter_name:<22}  {r.total_tasks:>5}  "
-            f"{r.success_rate:>6.1%}  {r.avg_steps:>5.1f}  "
-            f"{int(r.avg_cost_tokens):>6}  {(r.git_sha or '?')[:8]:>8}  "
+            f"{r.id:>4}  {r.adapter_name:<22}  {(r.eval_set or '-')[:18]:<18}  "
+            f"{ho_marker:>3}  {r.repeat_k:>2}  {r.total_tasks:>5}  "
+            f"{r.success_rate:>5.1%}  {r.pass_at_k:>5.1%}  {r.stable_at_k:>5.1%}  "
+            f"{r.p95_steps:>4.1f}  {r.failure_entropy:>4.2f}  "
+            f"{(r.git_sha or '?')[:8]:>8}  "
             f"{r.started_at.strftime('%Y-%m-%d %H:%M')}"
         )
 
@@ -872,12 +960,93 @@ def eval_compare_cmd(baseline_id: int, candidate_id: int | None) -> None:
             f"{arrow}{fmt.format(abs(delta))}"
         )
 
+    # Sanity: предупреждаем если adapter / eval_set / repeat_k разные.
+    warnings: list[str] = []
+    if baseline.adapter_name != candidate.adapter_name:
+        warnings.append(
+            f"adapter_name: {baseline.adapter_name} vs {candidate.adapter_name}"
+        )
+    if (baseline.eval_set or "") != (candidate.eval_set or ""):
+        warnings.append(
+            f"eval_set: {baseline.eval_set or '(none)'} vs {candidate.eval_set or '(none)'}"
+        )
+    elif baseline.eval_set_hash and baseline.eval_set_hash != candidate.eval_set_hash:
+        warnings.append(
+            f"eval_set_hash: {baseline.eval_set_hash} vs {candidate.eval_set_hash} "
+            "(тот же ярлык, но РАЗНЫЕ task'и)"
+        )
+    if baseline.repeat_k != candidate.repeat_k:
+        warnings.append(f"repeat_k: {baseline.repeat_k} vs {candidate.repeat_k}")
+    if baseline.held_out != candidate.held_out:
+        warnings.append(
+            f"held_out: {baseline.held_out} vs {candidate.held_out}"
+        )
+    if warnings:
+        click.echo("  ⚠  Comparison mismatches (interpret with caution):")
+        for w in warnings:
+            click.echo(f"     {w}")
+        click.echo()
+
     click.echo(_diff("success_rate", baseline.success_rate, candidate.success_rate))
+    click.echo(
+        _diff(
+            f"pass@{baseline.repeat_k}",
+            baseline.pass_at_k,
+            candidate.pass_at_k,
+        )
+    )
+    click.echo(
+        _diff(
+            f"stable@{baseline.repeat_k}",
+            baseline.stable_at_k,
+            candidate.stable_at_k,
+        )
+    )
     click.echo(
         _diff(
             "avg_steps",
             baseline.avg_steps,
             candidate.avg_steps,
+            "{:.2f}",
+        )
+    )
+    click.echo(
+        _diff(
+            "p50_steps",
+            baseline.p50_steps,
+            candidate.p50_steps,
+            "{:.2f}",
+        )
+    )
+    click.echo(
+        _diff(
+            "p95_steps",
+            baseline.p95_steps,
+            candidate.p95_steps,
+            "{:.2f}",
+        )
+    )
+    click.echo(
+        _diff(
+            "p50_latency_s",
+            baseline.p50_latency_s,
+            candidate.p50_latency_s,
+            "{:.2f}",
+        )
+    )
+    click.echo(
+        _diff(
+            "p95_latency_s",
+            baseline.p95_latency_s,
+            candidate.p95_latency_s,
+            "{:.2f}",
+        )
+    )
+    click.echo(
+        _diff(
+            "fail_entropy",
+            baseline.failure_entropy,
+            candidate.failure_entropy,
             "{:.2f}",
         )
     )
