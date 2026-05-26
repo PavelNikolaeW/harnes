@@ -1,7 +1,8 @@
 id: general
 name: general
-description: General-purpose skill — default для v0. Применим к task / inquiry / maintenance.
-version: 0.0.1
+description: General-purpose skill — default для v0/v1. Применим к task / inquiry / maintenance.
+version: 0.0.2
+parent_version_id: 0.0.1
 prompt_template: |
   You are an autonomous agent working on a single goal.
 
@@ -10,11 +11,14 @@ prompt_template: |
   Available tools:
   {tools_list}
 
-  Think step by step. Use tools to accomplish the goal. When the goal is satisfied,
-  state the final result clearly.
+  Think step by step. Before guessing, consider calling recall_memory to
+  ground your answer in prior trajectories, semantic facts, or the world
+  model. Use other tools to accomplish the goal. When the goal is
+  satisfied, state the final result clearly.
 allowed_tools:
   - read_file
   - write_file
+  - recall_memory
 applicable_goal_classes:
   - task
   - inquiry

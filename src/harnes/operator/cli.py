@@ -493,7 +493,7 @@ def run_loop(interval: float, stub: bool, max_ticks: int | None, world: bool) ->
     if not stub:
         from harnes.react.loop import run_react
         from harnes.skills.store import SkillRegistry
-        from harnes.tools.registry import get_registry
+        from harnes.tools.builtin.recall import build_runtime_registry
 
         skill_registry = SkillRegistry(
             settings.procedural_store.bundles_dir,
@@ -505,7 +505,8 @@ def run_loop(interval: float, stub: bool, max_ticks: int | None, world: bool) ->
         if general is None:
             click.echo("Error: 'general' skill not found", err=True)
             sys.exit(1)
-        tool_registry = get_registry()
+        # v1.0 #34: recall_memory tool привязан к router → доступен в трассе.
+        tool_registry = build_runtime_registry(router)
         skill_registry_for_reflect = skill_registry
 
         def real_react(active_goal, focus, memory):
@@ -770,22 +771,26 @@ def run_eval(
         if general is None:
             click.echo("Error: 'general' skill not found", err=True)
             sys.exit(1)
-        tool_registry = get_registry()
+        # v1.0 #34: recall_memory tool привязан к router → доступен в трассе.
+        from harnes.tools.builtin.recall import build_runtime_registry
+
+        tool_registry = build_runtime_registry(router)
 
         def agent_run(goal):
             # Multi-turn injection: если goal.metadata.chunks есть, создаём
             # task-scoped registry с recall_memory tool'ом, привязанным к
-            # in-memory store с этими chunks. Иначе обычный flow.
+            # in-memory store с этими chunks. Иначе обычный flow с
+            # persistent-memory recall_memory (v1.0 #34).
             chunks = goal.metadata.get("chunks") if isinstance(goal.metadata, dict) else None
             if chunks:
                 from harnes.eval.multi_turn import build_task_registry
 
                 task_registry, _store = build_task_registry(chunks)
-                task_skill = general.model_copy(
-                    update={
-                        "allowed_tools": list(general.allowed_tools) + ["recall_memory"]
-                    }
-                )
+                # general.yaml уже содержит recall_memory; dedup для подстраховки.
+                merged_tools = list(dict.fromkeys(
+                    list(general.allowed_tools) + ["recall_memory"]
+                ))
+                task_skill = general.model_copy(update={"allowed_tools": merged_tools})
                 return run_react(
                     active_goal=goal,
                     skill=task_skill,
