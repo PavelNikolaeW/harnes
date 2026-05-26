@@ -194,14 +194,106 @@ def test_judge_sees_recent_steps_in_prompt() -> None:
 # ---------- state_change / composite — stubs ----------
 
 
-def test_state_change_is_stub() -> None:
+def test_state_change_unknown_tool_is_undetermined() -> None:
     goal = _goal_with(
-        StateChangePredicate(check_tool_id="t", expected_outcome={"ok": True})
+        StateChangePredicate(
+            check_tool_id="nonexistent_tool", expected_outcome={"x": 1}
+        )
     )
     traj = _traj_with_final(None)
     v = verify_state_change(goal.predicate_of_success, traj, goal)
     assert v.status == VerifyStatus.UNDETERMINED
     assert v.measured_by == "state_change"
+    assert "not in registry" in v.reasons[0]
+
+
+def test_state_change_success_via_read_file(tmp_path) -> None:
+    """Реальная проверка через builtin read_file: создаём файл с известным
+    содержимым, верификатор проверяет."""
+    from harnes.tools.registry import get_registry, reset_registry
+
+    reset_registry()
+    get_registry()  # auto-registers builtin tools
+
+    target = tmp_path / "state.txt"
+    target.write_text("hello world", encoding="utf-8")
+
+    goal = _goal_with(
+        StateChangePredicate(
+            check_tool_id="read_file",
+            check_tool_args={"path": str(target)},
+            expected_outcome={"content": "hello world"},
+        )
+    )
+    traj = _traj_with_final({"done": True})
+    v = verify_state_change(goal.predicate_of_success, traj, goal)
+    assert v.status == VerifyStatus.SUCCESS, v.reasons
+    assert v.measured_by == "state_change"
+
+
+def test_state_change_fail_when_content_mismatch(tmp_path) -> None:
+    from harnes.tools.registry import get_registry, reset_registry
+
+    reset_registry()
+    get_registry()
+
+    target = tmp_path / "state.txt"
+    target.write_text("WRONG content", encoding="utf-8")
+
+    goal = _goal_with(
+        StateChangePredicate(
+            check_tool_id="read_file",
+            check_tool_args={"path": str(target)},
+            expected_outcome={"content": "expected text"},
+        )
+    )
+    traj = _traj_with_final({"done": True})
+    v = verify_state_change(goal.predicate_of_success, traj, goal)
+    assert v.status == VerifyStatus.FAIL
+    assert "mismatch" in v.reasons[0]
+
+
+def test_state_change_fail_when_tool_errors(tmp_path) -> None:
+    """Если check_tool сам упал (например, файл не существует) — FAIL."""
+    from harnes.tools.registry import get_registry, reset_registry
+
+    reset_registry()
+    get_registry()
+
+    goal = _goal_with(
+        StateChangePredicate(
+            check_tool_id="read_file",
+            check_tool_args={"path": str(tmp_path / "missing.txt")},
+            expected_outcome={"content": "anything"},
+        )
+    )
+    traj = _traj_with_final(None)
+    v = verify_state_change(goal.predicate_of_success, traj, goal)
+    assert v.status == VerifyStatus.FAIL
+    assert v.measured_by == "state_change"
+
+
+def test_state_change_subset_match_works(tmp_path) -> None:
+    """expected_outcome — подмножество полей, лишние ключи в payload OK."""
+    from harnes.tools.registry import get_registry, reset_registry
+
+    reset_registry()
+    get_registry()
+
+    target = tmp_path / "x.txt"
+    target.write_text("abc", encoding="utf-8")
+
+    # read_file возвращает {content, bytes_read, truncated} — мы проверяем только content
+    goal = _goal_with(
+        StateChangePredicate(
+            check_tool_id="read_file",
+            check_tool_args={"path": str(target)},
+            expected_outcome={"content": "abc"},  # bytes_read/truncated не указаны
+        )
+    )
+    traj = _traj_with_final({"done": True})
+    v = verify_state_change(goal.predicate_of_success, traj, goal)
+    assert v.status == VerifyStatus.SUCCESS
 
 
 def test_composite_is_stub() -> None:

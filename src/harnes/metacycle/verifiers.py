@@ -188,15 +188,79 @@ Reply with JSON only:
 # ---------- state_change ----------
 
 
+def _matches_expected(payload: dict[str, Any], expected: dict[str, Any]) -> tuple[bool, list[str]]:
+    """Глубокое subset-сравнение payload vs expected.
+
+    expected — это ожидаемое подмножество. Все ключи из expected должны быть
+    в payload с равными значениями. Дополнительные ключи в payload — ОК.
+
+    Возвращает (matched, mismatches_human_readable).
+    """
+    mismatches: list[str] = []
+    for k, expected_v in expected.items():
+        if k not in payload:
+            mismatches.append(f"missing key: {k!r}")
+            continue
+        actual_v = payload[k]
+        if isinstance(expected_v, dict) and isinstance(actual_v, dict):
+            sub_ok, sub_mis = _matches_expected(actual_v, expected_v)
+            if not sub_ok:
+                mismatches.extend(f"{k}.{m}" for m in sub_mis)
+        elif actual_v != expected_v:
+            mismatches.append(f"{k}: expected {expected_v!r}, got {actual_v!r}")
+    return (len(mismatches) == 0, mismatches)
+
+
 def verify_state_change(
     predicate: StateChangePredicate,
     trajectory: Trajectory,
     goal: Goal,
 ) -> Verdict:
-    """v0: stub — нужен ToolRegistry для вызова check_tool. Подключим в v0.2."""
+    """Вызывает check_tool и сравнивает payload с expected_outcome.
+
+    Использует глобальный ToolRegistry. expected_outcome — ожидаемое подмножество
+    полей; реальный payload может иметь дополнительные ключи.
+    """
+    from harnes.react.schema import ObservationOutcome
+    from harnes.tools.registry import get_registry
+
+    registry = get_registry()
+    tool = registry.get(predicate.check_tool_id)
+    if tool is None:
+        return Verdict(
+            status=VerifyStatus.UNDETERMINED,
+            reasons=[
+                f"state_change verify: check_tool {predicate.check_tool_id!r} not in registry"
+            ],
+            measured_by="state_change",
+        )
+
+    obs = registry.invoke(predicate.check_tool_id, predicate.check_tool_args)
+    if obs.outcome != ObservationOutcome.SUCCESS:
+        return Verdict(
+            status=VerifyStatus.FAIL,
+            reasons=[
+                f"state_change verify: check_tool returned outcome={obs.outcome.value}",
+                obs.error_detail or "(no error detail)",
+            ],
+            evidence=[{"check_tool_id": predicate.check_tool_id, "outcome": obs.outcome.value}],
+            measured_by="state_change",
+        )
+
+    payload = obs.payload or {}
+    matched, mismatches = _matches_expected(payload, predicate.expected_outcome)
+
+    if matched:
+        return Verdict(
+            status=VerifyStatus.SUCCESS,
+            reasons=["all expected_outcome keys matched"],
+            evidence=[{"payload_subset": predicate.expected_outcome}],
+            measured_by="state_change",
+        )
     return Verdict(
-        status=VerifyStatus.UNDETERMINED,
-        reasons=["state_change verifier not yet implemented (v0.2)"],
+        status=VerifyStatus.FAIL,
+        reasons=[f"state_change mismatch: {'; '.join(mismatches)}"],
+        evidence=[{"actual_payload": payload, "expected": predicate.expected_outcome}],
         measured_by="state_change",
     )
 

@@ -72,8 +72,15 @@ class StateChangePredicate(BaseModel):
 
     type: Literal["state_change"] = "state_change"
     check_tool_id: str = Field(description="ID тула, который проверит состояние среды")
+    check_tool_args: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Аргументы для check_tool (например, path для read_file)",
+    )
     expected_outcome: dict[str, Any] = Field(
-        description="Ожидаемый возврат check_tool для успеха"
+        description=(
+            "Ожидаемое подмножество полей вывода check_tool. Verify проходит если "
+            "все ключи expected_outcome присутствуют в payload и значения совпадают."
+        )
     )
 
 
