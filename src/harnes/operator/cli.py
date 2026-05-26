@@ -435,10 +435,11 @@ def run_tick_cmd(real: bool, world: bool) -> None:
     help="Секунды между тиками",
 )
 @click.option(
-    "--stub",
-    is_flag=True,
+    "--stub/--real",
+    "stub",
     default=False,
-    help="Использовать stub ReAct (без LLM) — для smoke-проверки цикла",
+    show_default=True,
+    help="--stub: ReAct без LLM (smoke-проверка цикла). --real: реальный LLM-агент (default).",
 )
 @click.option(
     "--max-ticks",
