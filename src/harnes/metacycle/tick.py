@@ -58,6 +58,9 @@ class TickState:
     trajectory: Trajectory | None = None
     verdict: Verdict | None = None
     idle: bool = True
+    # v1.0 #33: цели, порождённые самим агентом за этот тик.
+    # Источники: standing-policy spawn, reflect.inquiry_from_failure.
+    spawned_goals: list[Goal] = field(default_factory=list)
 
 
 # ---------- React function signature ----------
@@ -253,40 +256,72 @@ def store_stage(
 # ---------- Reflect trigger (v0.2: failure_analysis only) ----------
 
 
-def _maybe_reflect_failure(state: "TickState", skill_registry: Any) -> None:
-    """Запускает reflect.failure_analysis если есть skill_id в trajectory.metadata."""
+def _maybe_reflect_failure(
+    state: "TickState",
+    skill_registry: Any,
+    goal_repo: GoalRepository | None = None,
+) -> None:
+    """Запускает reflect-режимы на FAIL:
+    1) failure_analysis (v0.2) — bump prompt_template если конструктивно.
+    2) inquiry_from_failure (v1.0 #33) — spawn inquiry-goal при knowledge-gap.
+
+    Каждый mode ловит свои exceptions; падение одного не блокирует другой.
+    """
     assert state.trajectory is not None
     assert state.active_goal is not None
     assert state.verdict is not None
 
-    skill_id = state.trajectory.metadata.get("skill_id") if isinstance(state.trajectory.metadata, dict) else None
-    if not skill_id:
-        return
+    # 1) failure_analysis — нужен skill_id (если нет — пропускаем этот mode).
+    skill_id = (
+        state.trajectory.metadata.get("skill_id")
+        if isinstance(state.trajectory.metadata, dict)
+        else None
+    )
+    skill = skill_registry.get(skill_id) if skill_id else None
+    if skill is not None:
+        from harnes.metacycle.reflect import reflect_failure_analysis
 
-    skill = skill_registry.get(skill_id)
-    if skill is None:
-        log.warning("reflect.skill_not_found", skill_id=skill_id)
-        return
-
-    from harnes.metacycle.reflect import reflect_failure_analysis
-
-    try:
-        new_skill = reflect_failure_analysis(
-            trajectory=state.trajectory,
-            goal=state.active_goal,
-            verdict=state.verdict,
-            skill=skill,
-            skill_registry=skill_registry,
-        )
-        if new_skill is not None:
-            log.info(
-                "metacycle.reflect.versioned",
-                skill_id=new_skill.id,
-                from_version=skill.version,
-                to_version=new_skill.version,
+        try:
+            new_skill = reflect_failure_analysis(
+                trajectory=state.trajectory,
+                goal=state.active_goal,
+                verdict=state.verdict,
+                skill=skill,
+                skill_registry=skill_registry,
             )
-    except Exception as exc:  # noqa: BLE001
-        log.warning("metacycle.reflect.failed", error=str(exc))
+            if new_skill is not None:
+                log.info(
+                    "metacycle.reflect.versioned",
+                    skill_id=new_skill.id,
+                    from_version=skill.version,
+                    to_version=new_skill.version,
+                )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("metacycle.reflect.failure_analysis.failed", error=str(exc))
+    elif skill_id:
+        log.warning("reflect.skill_not_found", skill_id=skill_id)
+
+    # 2) inquiry_from_failure — не требует skill_id, работает с trajectory+verdict.
+    if goal_repo is not None:
+        from harnes.metacycle.reflect import reflect_inquiry_from_failure
+
+        try:
+            inquiry = reflect_inquiry_from_failure(
+                trajectory=state.trajectory,
+                goal=state.active_goal,
+                verdict=state.verdict,
+            )
+            if inquiry is not None:
+                goal_repo.create(inquiry)
+                state.spawned_goals.append(inquiry)
+                log.info(
+                    "metacycle.reflect.inquiry_spawned",
+                    inquiry_id=str(inquiry.id),
+                    parent_goal_id=str(state.active_goal.id),
+                    description=inquiry.description[:120],
+                )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("metacycle.reflect.inquiry.failed", error=str(exc))
 
 
 # ---------- Driver ----------
@@ -324,7 +359,8 @@ def run_tick(
             focus=state.focus,
             has_active_goal_now=False,  # будем знать только после arbitration
         )
-        check_standing_goals(ctx, goal_repo)
+        spawned_by_standing = check_standing_goals(ctx, goal_repo)
+        state.spawned_goals.extend(spawned_by_standing)
 
     state = goal_arbitration(state, goal_repo)
 
@@ -338,15 +374,17 @@ def run_tick(
     state = world_update_stage(state, world)
     state = store_stage(state, episodic, goal_repo)
 
-    # Reflect — триггерный (v0.2: только failure_analysis).
+    # Reflect — триггерный, на FAIL верификации.
+    # v0.2: failure_analysis bumps skill prompt_template (требует skill_registry).
+    # v1.0 #33: inquiry_from_failure spawn'ит inquiry-goal при knowledge-gap
+    # (требует goal_repo, не требует skill_registry).
     if (
-        skill_registry is not None
-        and state.verdict is not None
+        state.verdict is not None
         and state.verdict.status == VerifyStatus.FAIL
         and state.trajectory is not None
         and state.active_goal is not None
     ):
-        _maybe_reflect_failure(state, skill_registry)
+        _maybe_reflect_failure(state, skill_registry, goal_repo=goal_repo)
 
     log.info("metacycle.tick.done", tick=tick_id, goal_status=state.active_goal.status if state.active_goal else None)
     return state

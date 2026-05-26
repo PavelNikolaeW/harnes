@@ -2,14 +2,17 @@
 
 См. `agent_architecture.html` § 15.
 
-В v0.2 реализован один режим:
+Режимы:
 
-- **failure_analysis** — при verify=FAIL для траектории LLM-судья (tier=main)
+- **failure_analysis** (v0.2) — при verify=FAIL LLM-судья (tier=main)
   анализирует, что пошло не так, и предлагает обновление prompt_template
   использованного скилла. Если предложение конструктивное — SkillRegistry
-  создаёт новую версию скилла; старая остаётся в metrics-таблице.
+  создаёт новую версию скилла.
 
-Прочие режимы (batch_consolidation, periodic_review, ...) — v0.3+.
+- **inquiry_from_failure** (v1.0 #33) — при verify=FAIL LLM решает, есть
+  ли в траектории явный знание-gap, который стоит проактивно закрыть.
+  Если есть — spawn'ит inquiry-goal с origin=SELF, origin_subtype=LEARNING.
+  Это первый кирпич автономии — агент сам генерирует себе вопросы.
 """
 from __future__ import annotations
 
@@ -20,7 +23,13 @@ from typing import Any, Callable
 
 import structlog
 
-from harnes.goals.schema import Goal
+from harnes.goals.schema import (
+    Goal,
+    GoalClass,
+    JudgePredicate,
+    Origin,
+    OriginSubtype,
+)
 from harnes.metacycle.schema import Verdict, VerifyStatus
 from harnes.react.schema import Trajectory
 from harnes.skills.schema import Skill, SkillStatus
@@ -200,3 +209,120 @@ Reply with JSON only:
         to_version=new_version,
     )
     return new_skill
+
+
+# ---------- Inquiry from failure (v1.0 #33) ----------
+
+
+_INQUIRY_SYSTEM_PROMPT = (
+    "You are an analyst looking for knowledge gaps in a failed agent trajectory. "
+    "Decide whether the failure stems from missing information that could be "
+    "investigated as an independent inquiry. Examples of inquiry-worthy gaps: "
+    "an unfamiliar API, a poorly-understood error pattern, a missing fact about "
+    "the environment. NOT inquiry-worthy: prompt-template mistakes (those go to "
+    "failure_analysis), random LLM glitches, unfixable environmental constraints. "
+    "Be conservative — only propose inquiry when it would CLEARLY help future "
+    "attempts. Reply with strict JSON only."
+)
+
+
+def reflect_inquiry_from_failure(
+    trajectory: Trajectory,
+    goal: Goal,
+    verdict: Verdict,
+    llm_call: Callable[..., Any] | None = None,
+) -> Goal | None:
+    """v1.0 #33: при FAIL — определяет, есть ли knowledge-gap, и spawn'ит inquiry.
+
+    Возвращает inquiry Goal (origin=SELF, subtype=LEARNING) или None.
+
+    Fall-open: при ошибках LLM или парсинга возвращает None.
+
+    Использование: вызвать ПАРАЛЛЕЛЬНО с reflect_failure_analysis.
+    failure_analysis fix'ит skill template; этот режим расширяет знание.
+    """
+    if llm_call is None:
+        from harnes.llm import call as default_call
+
+        llm_call = default_call
+
+    user_prompt = f"""Failed trajectory analysis for inquiry-worthy knowledge gaps.
+
+Goal: {goal.description}
+Goal class: {goal.goal_class.value}
+
+Verdict: {verdict.status.value} (measured_by={verdict.measured_by})
+Verdict reasons: {'; '.join(verdict.reasons) if verdict.reasons else '(none)'}
+
+Trajectory:
+{_format_trajectory_for_reflect(trajectory)}
+
+Question: is there a CONCRETE knowledge gap (a fact, an API, a concept) that
+the agent could investigate as a follow-up inquiry, and that would clearly
+improve future attempts on similar goals?
+
+Reply with JSON only:
+{{
+  "should_spawn_inquiry": true | false,
+  "inquiry_description": "<short imperative, e.g. 'Find out how X works'>",
+  "rationale": "<one short sentence>"
+}}"""
+
+    messages = [
+        {"role": "system", "content": _INQUIRY_SYSTEM_PROMPT},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    try:
+        response = llm_call(messages, tier="main", max_tokens=600)
+        text = response.choices[0].message.content or ""
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "reflect.inquiry.llm_failed",
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+        return None
+
+    parsed = _parse_reflect_json(text)
+    if parsed is None:
+        log.warning("reflect.inquiry.unparseable", raw=text[:300])
+        return None
+
+    should_spawn = bool(parsed.get("should_spawn_inquiry", False))
+    description = str(parsed.get("inquiry_description", "")).strip()
+    rationale = str(parsed.get("rationale", "")).strip()
+
+    log.info(
+        "reflect.inquiry.done",
+        should_spawn=should_spawn,
+        description=description[:120],
+        rationale=rationale[:120],
+    )
+
+    if not should_spawn or not description:
+        return None
+
+    # Простая гигиена: description слишком короткое = не годится.
+    if len(description) < 8:
+        log.debug("reflect.inquiry.too_short", description=description)
+        return None
+
+    inquiry = Goal(
+        description=description,
+        goal_class=GoalClass.INQUIRY,
+        priority=1,  # ниже task priority по умолчанию
+        predicate_of_success=JudgePredicate(
+            criterion=f"Answer to '{description}' obtained or escalated"
+        ),
+        origin=Origin.SELF,
+        origin_subtype=OriginSubtype.LEARNING,
+        originator=f"reflect.inquiry_from_failure:{goal.id}",
+        parent_id=goal.id,
+        metadata={
+            "rationale": rationale,
+            "from_trajectory_id": str(trajectory.id),
+            "from_verdict_status": verdict.status.value,
+        },
+    )
+    return inquiry

@@ -534,6 +534,8 @@ def run_loop(interval: float, stub: bool, max_ticks: int | None, world: bool) ->
     tick_id = 0
     processed = 0
     idle_count = 0
+    ticks_with_self_spawn = 0
+    total_self_spawned = 0
     try:
         while True:
             if max_ticks is not None and tick_id >= max_ticks:
@@ -550,6 +552,17 @@ def run_loop(interval: float, stub: bool, max_ticks: int | None, world: bool) ->
                 world=world_store,
                 skill_registry=skill_registry_for_reflect,
             )
+
+            # v1.0 #33 — счётчики self-generated целей.
+            if state.spawned_goals:
+                ticks_with_self_spawn += 1
+                total_self_spawned += len(state.spawned_goals)
+                log.info(
+                    "metacycle.loop.spawned",
+                    tick=tick_id,
+                    count=len(state.spawned_goals),
+                    descriptions=[g.description[:80] for g in state.spawned_goals],
+                )
 
             if state.idle:
                 idle_count += 1
@@ -578,14 +591,21 @@ def run_loop(interval: float, stub: bool, max_ticks: int | None, world: bool) ->
     finally:
         if world_store is not None:
             world_store.close()
+        self_gen_rate = ticks_with_self_spawn / tick_id if tick_id > 0 else 0.0
         log.info(
             "metacycle.loop.stopped",
             total_ticks=tick_id,
             processed=processed,
             idle=idle_count,
+            ticks_with_self_spawn=ticks_with_self_spawn,
+            total_self_spawned=total_self_spawned,
+            self_generation_rate=self_gen_rate,
         )
         click.echo(
-            f"Stopped after {tick_id} ticks ({processed} processed, {idle_count} idle)."
+            f"Stopped after {tick_id} ticks ({processed} processed, {idle_count} idle).\n"
+            f"  Self-generated: {total_self_spawned} goals "
+            f"in {ticks_with_self_spawn}/{tick_id} ticks "
+            f"({self_gen_rate:.1%} self_generation_rate)."
         )
 
 
