@@ -225,11 +225,17 @@ def run_react(
     llm_call: Callable[..., Any] | None = None,
     max_steps: int = 20,
     budget_tokens: int = 50_000,
+    with_critic: bool = True,
+    max_critic_rejections: int = 3,
 ) -> Trajectory:
-    """Classic ReAct loop. См. § 7.
+    """Classic ReAct loop с опциональным критиком на irreversible-действиях.
 
-    Параметр `llm_call` — функция (messages, **kwargs) → response.
-    None → дефолтный harnes.llm.call. Тесты передают мок.
+    См. § 7 и § 11.
+
+    Параметры:
+    - llm_call: функция (messages, **kwargs) → response. None → harnes.llm.call.
+    - with_critic: включает критика перед action с is_irreversible=true.
+    - max_critic_rejections: после стольких REJECT'ов подряд траектория FAILURE.
     """
     if llm_call is None:
         from harnes.llm import call as default_call
@@ -243,6 +249,7 @@ def run_react(
         started_at=datetime.now(UTC),
     )
     total_tokens = 0
+    critic_rejections = 0
 
     for step_idx in range(max_steps):
         # Бюджет
@@ -301,11 +308,40 @@ def run_react(
             )
             break
 
-        # 4. Execute
+        # 4. Критик на irreversible-действиях (если включён)
+        if with_critic and action.is_irreversible:
+            from harnes.react.critic import critique_action
+
+            critique = critique_action(action, traj, active_goal, llm_call=llm_call)
+            traj.steps.append(critique)
+            total_tokens += critique.cost.tokens
+
+            if critique.verdict.value == "reject":
+                critic_rejections += 1
+                log.info(
+                    "react.critic.rejected_action",
+                    trajectory_id=str(traj.id),
+                    tool_id=action.tool_id,
+                    rejection=critic_rejections,
+                    reasoning=critique.reasoning[:200],
+                )
+                if critic_rejections > max_critic_rejections:
+                    traj.status = TrajectoryStatus.FAILURE
+                    log.warning(
+                        "react.terminated.critic_rejections_exceeded",
+                        trajectory_id=str(traj.id),
+                        limit=max_critic_rejections,
+                    )
+                    break
+                # Skip execution, back to next thought (critic в контексте).
+                continue
+            # ok / warning — action исполняется.
+
+        # 5. Execute
         obs = tool_registry.invoke(action.tool_id, action.args, skill=skill)
         traj.steps.append(obs)
 
-        # 5. Loop detection
+        # 6. Loop detection
         if _detect_loop(traj):
             log.warning(
                 "react.terminated.loop_detected",
