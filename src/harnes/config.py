@@ -58,6 +58,10 @@ class GoalStoreConfig(BaseModel):
 class ProceduralStoreConfig(BaseModel):
     sqlite_path: Path = Path("/app/data/skill_metrics.db")
     bundles_dir: Path = Path("/app/skills")
+    # v0.3 #30: auto-commit skill bundles в git при изменении версии.
+    # Default False — не должно сюрприайзить пользователя автокоммитами.
+    git_auto_commit: bool = False
+    git_auto_tag: bool = False
 
 
 class EmbeddingsConfig(BaseModel):

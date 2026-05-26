@@ -374,6 +374,8 @@ def run_tick_cmd(real: bool, world: bool) -> None:
         skill_registry = SkillRegistry(
             settings.procedural_store.bundles_dir,
             settings.procedural_store.sqlite_path,
+            git_auto_commit=settings.procedural_store.git_auto_commit,
+            git_auto_tag=settings.procedural_store.git_auto_tag,
         )
         general = skill_registry.get("general")
         if general is None:
@@ -496,6 +498,8 @@ def run_loop(interval: float, stub: bool, max_ticks: int | None, world: bool) ->
         skill_registry = SkillRegistry(
             settings.procedural_store.bundles_dir,
             settings.procedural_store.sqlite_path,
+            git_auto_commit=settings.procedural_store.git_auto_commit,
+            git_auto_tag=settings.procedural_store.git_auto_tag,
         )
         general = skill_registry.get("general")
         if general is None:
@@ -715,6 +719,8 @@ def run_eval(
         skill_registry = SkillRegistry(
             settings.procedural_store.bundles_dir,
             settings.procedural_store.sqlite_path,
+            git_auto_commit=settings.procedural_store.git_auto_commit,
+            git_auto_tag=settings.procedural_store.git_auto_tag,
         )
         general = skill_registry.get("general")
         if general is None:

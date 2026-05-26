@@ -29,6 +29,10 @@ goal_store:
 procedural_store:
   sqlite_path: "/app/data/skill_metrics.db"
   bundles_dir: "/app/skills"
+  # Авто-коммит изменённого skill.yaml в git при SkillRegistry.save.
+  # ВКЛ только если уверен — повлияет на git-историю.
+  git_auto_commit: false
+  git_auto_tag: false
 
 embeddings:
   # use_server=true когда /v1/embeddings появится на ll-router; пока fallback.

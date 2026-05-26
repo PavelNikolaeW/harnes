@@ -53,9 +53,13 @@ class SkillRegistry:
         self,
         bundles_dir: Path | str,
         metrics_db: Path | str = ":memory:",
+        git_auto_commit: bool = False,
+        git_auto_tag: bool = False,
     ) -> None:
         self.bundles_dir = Path(bundles_dir)
         self.bundles_dir.mkdir(parents=True, exist_ok=True)
+        self.git_auto_commit = git_auto_commit
+        self.git_auto_tag = git_auto_tag
 
         url = (
             "sqlite:///:memory:"
@@ -116,14 +120,161 @@ class SkillRegistry:
     # ---------- Bundle write ----------
 
     def save(self, skill: Skill) -> None:
-        """Запись бандла в YAML. Используется при создании скилла оператором
-        или (позже) reflect'ом при рефайнах. Версионирование — через git.
+        """Запись бандла в YAML. Используется оператором или reflect'ом.
+
+        Если включён git_auto_commit — делает git add+commit изменённого
+        файла. Если git_auto_tag — также создаёт tag skill/{id}/v{version}.
+
+        Безопасно — git_auto_commit=False по умолчанию.
         """
         path = self.bundles_dir / f"{skill.id}.yaml"
         data = skill.model_dump(mode="json", exclude_none=True)
         with path.open("w", encoding="utf-8") as f:
             yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
-        log.info("skill.bundle.saved", skill_id=skill.id, path=str(path))
+        log.info(
+            "skill.bundle.saved",
+            skill_id=skill.id,
+            version=skill.version,
+            path=str(path),
+        )
+
+        if self.git_auto_commit:
+            self._maybe_git_commit(path, skill)
+
+    def _maybe_git_commit(self, path: Path, skill: Skill) -> None:
+        """Атомарно коммитит только этот YAML-файл в git, если репо есть."""
+        import subprocess
+
+        try:
+            # Проверяем что путь внутри git-репо.
+            result = subprocess.run(
+                ["git", "rev-parse", "--show-toplevel"],
+                cwd=path.parent,
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            if result.returncode != 0:
+                log.warning(
+                    "skill.git.not_a_repo",
+                    skill_id=skill.id,
+                    bundles_dir=str(self.bundles_dir),
+                )
+                return
+            repo_root = Path(result.stdout.strip())
+            relative_path = path.resolve().relative_to(repo_root)
+
+            commit_msg = (
+                f"skill {skill.id}: v{skill.version}"
+                + (f" (parent v{skill.parent_version_id})" if skill.parent_version_id else "")
+                + f" [{skill.origin.value}]"
+            )
+
+            # add only this file, commit only this file.
+            add_res = subprocess.run(
+                ["git", "add", "--", str(relative_path)],
+                cwd=repo_root,
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            if add_res.returncode != 0:
+                log.warning(
+                    "skill.git.add_failed",
+                    skill_id=skill.id,
+                    error=add_res.stderr.strip(),
+                )
+                return
+
+            # Check if there are actually changes to commit.
+            diff_res = subprocess.run(
+                ["git", "diff", "--cached", "--quiet", "--", str(relative_path)],
+                cwd=repo_root,
+                capture_output=True,
+                timeout=5,
+                check=False,
+            )
+            if diff_res.returncode == 0:
+                # No changes staged.
+                log.debug("skill.git.no_changes", skill_id=skill.id)
+                return
+
+            commit_res = subprocess.run(
+                [
+                    "git",
+                    "commit",
+                    "--only",
+                    "--message",
+                    commit_msg,
+                    "--",
+                    str(relative_path),
+                ],
+                cwd=repo_root,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            if commit_res.returncode != 0:
+                log.warning(
+                    "skill.git.commit_failed",
+                    skill_id=skill.id,
+                    error=commit_res.stderr.strip(),
+                )
+                return
+
+            sha = self._current_sha(repo_root)
+            log.info(
+                "skill.git.committed",
+                skill_id=skill.id,
+                version=skill.version,
+                sha=sha[:12],
+            )
+
+            if self.git_auto_tag:
+                tag = f"skill/{skill.id}/v{skill.version}"
+                tag_res = subprocess.run(
+                    ["git", "tag", "-a", tag, "-m", commit_msg],
+                    cwd=repo_root,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
+                )
+                if tag_res.returncode == 0:
+                    log.info("skill.git.tagged", skill_id=skill.id, tag=tag)
+                else:
+                    # Tag уже существует или другая ошибка — не критично.
+                    log.debug(
+                        "skill.git.tag_failed",
+                        skill_id=skill.id,
+                        error=tag_res.stderr.strip(),
+                    )
+        except subprocess.TimeoutExpired:
+            log.warning("skill.git.timeout", skill_id=skill.id)
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "skill.git.error",
+                skill_id=skill.id,
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+
+    @staticmethod
+    def _current_sha(repo_root: Path) -> str:
+        import subprocess
+
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        return result.stdout.strip() if result.returncode == 0 else ""
 
     # ---------- Metrics ----------
 
