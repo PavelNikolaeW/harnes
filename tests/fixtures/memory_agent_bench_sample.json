@@ -1,0 +1,42 @@
+{
+  "name": "memory_agent_bench_sample",
+  "description": "Small synthetic subset for adapter wiring tests. Real MemoryAgentBench uses 1000+ tasks from HuggingFace.",
+  "metric": "substring_exact_match",
+  "tasks": [
+    {
+      "task_id": "ar_001",
+      "category": "accurate_retrieval",
+      "context": "Yesterday I told my assistant: my mother's name is Elena and she lives in Saratov.",
+      "question": "What is the user's mother's name?",
+      "expected_answer": "Elena"
+    },
+    {
+      "task_id": "ar_002",
+      "category": "accurate_retrieval",
+      "context": "User mentioned earlier that their favourite color is teal and their dog is named Pixel.",
+      "question": "What is the user's dog's name?",
+      "expected_answer": "Pixel"
+    },
+    {
+      "task_id": "cr_001",
+      "category": "conflict_resolution",
+      "context": "User said on Monday: I work at Acme Corp. On Tuesday user said: actually I switched jobs, now I work at Globex.",
+      "question": "Where does the user currently work?",
+      "expected_answer": "Globex"
+    },
+    {
+      "task_id": "ttl_001",
+      "category": "test_time_learning",
+      "context": "Examples mapping codes to actions:\n  code:open  → unlock door\n  code:dim   → lower lights\n  code:warm  → raise temperature",
+      "question": "What should I do when the user says code:open?",
+      "expected_answer": "unlock door"
+    },
+    {
+      "task_id": "lru_001",
+      "category": "long_range_understanding",
+      "context": "Chapter 1: Alice met Bob at a cafe. Chapter 2: Bob recommended a book to Alice. Chapter 3: Alice read the book over a weekend. Chapter 4: She wrote a review saying it was excellent.",
+      "question": "Who wrote the review?",
+      "expected_answer": "Alice"
+    }
+  ]
+}

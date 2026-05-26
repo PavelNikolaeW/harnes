@@ -6,6 +6,7 @@
 бенчмарку (https://github.com/HUST-AI-HYZ/MemoryAgentBench) включается через
 external task #14 / отдельную итерацию.
 """
+from harnes.eval.adapters import MemoryAgentBenchAdapter
 from harnes.eval.harness import (
     BenchmarkAdapter,
     EvalResult,
@@ -13,4 +14,10 @@ from harnes.eval.harness import (
     run_evaluation,
 )
 
-__all__ = ["BenchmarkAdapter", "EvalResult", "PerTaskResult", "run_evaluation"]
+__all__ = [
+    "BenchmarkAdapter",
+    "EvalResult",
+    "MemoryAgentBenchAdapter",
+    "PerTaskResult",
+    "run_evaluation",
+]

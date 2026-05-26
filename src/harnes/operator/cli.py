@@ -585,6 +585,99 @@ def run_loop(interval: float, stub: bool, max_ticks: int | None, world: bool) ->
         )
 
 
+# ---------- run-eval ----------
+
+
+@cli.command("run-eval")
+@click.option(
+    "--adapter",
+    "adapter_name",
+    type=click.Choice(["memory_agent_bench"]),
+    default="memory_agent_bench",
+    show_default=True,
+)
+@click.option(
+    "--tasks-file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    required=True,
+    help="JSON-файл с задачами в формате adapter'а",
+)
+@click.option("--limit", type=int, default=None, help="Лимит задач (для smoke-теста)")
+@click.option(
+    "--stub/--real",
+    default=False,
+    help="--stub использовать заглушку ReAct (быстро, без LLM); --real реальный агент",
+)
+def run_eval(adapter_name: str, tasks_file: Path, limit: int | None, stub: bool) -> None:
+    """Прогон benchmark adapter'а через нашего агента. Печатает EvalResult."""
+    from harnes.eval import MemoryAgentBenchAdapter, run_evaluation
+    from harnes.memory.episodic import EpisodicStore
+    from harnes.memory.router import MemoryRouter
+    from harnes.react.loop import run_react
+    from harnes.skills.store import SkillRegistry
+    from harnes.tools.registry import get_registry
+
+    if adapter_name == "memory_agent_bench":
+        adapter = MemoryAgentBenchAdapter(tasks_file=tasks_file)
+    else:  # pragma: no cover — Click уже ограничил choices
+        click.echo(f"Unknown adapter: {adapter_name}", err=True)
+        sys.exit(1)
+
+    settings = get_settings()
+    Path(settings.memory.lancedb_path).mkdir(parents=True, exist_ok=True)
+    episodic = EpisodicStore(settings.memory.lancedb_path)
+    router = MemoryRouter(episodic=episodic)
+
+    if stub:
+        from harnes.metacycle.tick import stub_react_fn
+
+        def agent_run(goal):
+            return stub_react_fn(active_goal=goal, focus=None, memory=None)
+    else:
+        skill_registry = SkillRegistry(
+            settings.procedural_store.bundles_dir,
+            settings.procedural_store.sqlite_path,
+        )
+        general = skill_registry.get("general")
+        if general is None:
+            click.echo("Error: 'general' skill not found", err=True)
+            sys.exit(1)
+        tool_registry = get_registry()
+
+        def agent_run(goal):
+            return run_react(
+                active_goal=goal,
+                skill=general,
+                tool_registry=tool_registry,
+                max_steps=8,
+                budget_tokens=30_000,
+            )
+
+    click.echo(
+        f"Running {adapter.name} (limit={limit or 'all'}, "
+        f"agent={'stub' if stub else 'real LLM'})..."
+    )
+    result = run_evaluation(adapter, agent_run, limit=limit)
+
+    click.echo(f"\n=== Result: {result.name} ===")
+    click.echo(f"  tasks       : {len(result.per_task)}")
+    click.echo(f"  success_rate: {result.success_rate:.1%}")
+    click.echo(f"  avg_steps   : {result.avg_steps:.1f}")
+    click.echo(f"  avg_tokens  : {result.avg_cost_tokens:.0f}")
+    if result.failure_modes:
+        click.echo("  failure_modes:")
+        for mode, count in result.failure_modes.items():
+            click.echo(f"    {mode}: {count}")
+
+    click.echo("\nPer-task:")
+    for r in result.per_task:
+        marker = "✓" if r.success else "✗"
+        click.echo(
+            f"  {marker} {r.task_id} (steps={r.steps}, tokens={r.cost_tokens})"
+            + (f" — {r.failure_mode}" if r.failure_mode else "")
+        )
+
+
 # ---------- entry ----------
 
 
