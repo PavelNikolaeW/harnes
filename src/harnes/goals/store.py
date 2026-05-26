@@ -202,6 +202,11 @@ class GoalRepository:
             rows = s.exec(select(GoalRow).where(GoalRow.status == status)).all()
             return [self._from_row(r) for r in rows]
 
+    def list_by_class(self, goal_class: GoalClass) -> list[Goal]:
+        with self._session() as s:
+            rows = s.exec(select(GoalRow).where(GoalRow.goal_class == goal_class)).all()
+            return [self._from_row(r) for r in rows]
+
     def list_children(self, parent_id: UUID) -> list[Goal]:
         with self._session() as s:
             rows = s.exec(

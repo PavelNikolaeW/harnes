@@ -259,12 +259,28 @@ def run_tick(
     episodic: EpisodicStore,
     react_fn: ReactFn = stub_react_fn,
     world: WorldModelStore | None = None,
+    check_standing: bool = True,
 ) -> TickState:
-    """Один атомарный тик метацикла. Возвращает финальный TickState."""
+    """Один атомарный тик метацикла. Возвращает финальный TickState.
+
+    check_standing=True (default) — после attend проверяются standing-цели
+    и при срабатывании условий создаются task-подцели.
+    """
     state = TickState(tick_id=tick_id)
 
     state = sense(state, event_queue)
     state = attend(state)
+
+    if check_standing and state.focus is not None:
+        from harnes.metacycle.standing import StandingContext, check_standing_goals
+
+        ctx = StandingContext(
+            tick_id=tick_id,
+            focus=state.focus,
+            has_active_goal_now=False,  # будем знать только после arbitration
+        )
+        check_standing_goals(ctx, goal_repo)
+
     state = goal_arbitration(state, goal_repo)
 
     if state.idle:

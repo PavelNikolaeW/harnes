@@ -179,6 +179,28 @@ def inspect(goal_id: str) -> None:
     click.echo(goal.model_dump_json(indent=2))
 
 
+# ---------- bootstrap-standing ----------
+
+
+@cli.command("bootstrap-standing")
+def bootstrap_standing_cmd() -> None:
+    """Создать стартовый набор standing-целей (идемпотентно).
+
+    Standing-goals — реактивный слой: постоянно активные политики, которые
+    наблюдают состояние и порождают task-подцели при срабатывании.
+    """
+    from harnes.metacycle.standing import bootstrap_starter_standing_goals
+
+    repo = _open_repo()
+    created = bootstrap_starter_standing_goals(repo)
+    if not created:
+        click.echo("All starter standing-goals already exist.")
+        return
+    click.echo(f"Created {len(created)} standing-goals:")
+    for g in created:
+        click.echo(f"  {g.id} :: {g.description}")
+
+
 # ---------- run-tick ----------
 
 
