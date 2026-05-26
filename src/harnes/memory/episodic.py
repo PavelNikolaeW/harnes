@@ -168,3 +168,14 @@ class EpisodicStore:
         rows = self.db.open_table(STEPS_TABLE).search().limit(limit * 10).to_list()
         rows.sort(key=lambda r: r["timestamp"], reverse=True)
         return rows[:limit]
+
+    def recent_trajectories(
+        self, limit: int = 20, status: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Последние N трейекторий (по started_at desc), опционально по статусу."""
+        q = self.db.open_table(TRAJECTORIES_TABLE).search().limit(limit * 10)
+        if status is not None:
+            q = q.where(f"status = '{status}'")
+        rows = q.to_list()
+        rows.sort(key=lambda r: r["started_at"], reverse=True)
+        return rows[:limit]

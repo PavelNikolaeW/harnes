@@ -201,6 +201,126 @@ def bootstrap_standing_cmd() -> None:
         click.echo(f"  {g.id} :: {g.description}")
 
 
+# ---------- trace explorer ----------
+
+
+@cli.command("inspect-trajectory")
+@click.argument("trajectory_id")
+def inspect_trajectory(trajectory_id: str) -> None:
+    """Полный Trajectory из LanceDB: meta + все шаги."""
+    from harnes.memory.episodic import EpisodicStore
+
+    settings = get_settings()
+    Path(settings.memory.lancedb_path).mkdir(parents=True, exist_ok=True)
+    episodic = EpisodicStore(settings.memory.lancedb_path)
+
+    tid = UUID(trajectory_id)
+    meta = episodic.get_trajectory_meta(tid)
+    if meta is None:
+        click.echo(f"Trajectory {trajectory_id} not found", err=True)
+        sys.exit(1)
+
+    click.echo("=== Trajectory ===")
+    for k, v in meta.items():
+        click.echo(f"  {k}: {v}")
+
+    steps = episodic.get_steps(tid)
+    click.echo(f"\n=== Steps ({len(steps)}) ===")
+    for i, s in enumerate(steps, 1):
+        click.echo(
+            f"[{i:>3}] {s['step_type']:>12} "
+            f"@{s['timestamp']}  "
+            f"cost={s['cost_tokens']}t/{s['cost_latency']:.2f}s"
+        )
+        content = s.get("content_json", "")
+        if content:
+            try:
+                pretty = json.dumps(json.loads(content), indent=4)
+                for line in pretty.splitlines():
+                    click.echo(f"      {line}")
+            except json.JSONDecodeError:
+                click.echo(f"      {content}")
+
+
+@cli.command("recent-trajectories")
+@click.option("--limit", type=int, default=20, show_default=True)
+@click.option(
+    "--status",
+    type=click.Choice(["success", "failure", "budget_exceeded", "abandoned"]),
+    default=None,
+)
+def recent_trajectories(limit: int, status: str | None) -> None:
+    """Последние N трейекторий (по started_at desc)."""
+    from harnes.memory.episodic import EpisodicStore
+
+    settings = get_settings()
+    Path(settings.memory.lancedb_path).mkdir(parents=True, exist_ok=True)
+    episodic = EpisodicStore(settings.memory.lancedb_path)
+
+    rows = episodic.recent_trajectories(limit=limit, status=status)
+    if not rows:
+        click.echo("(no trajectories)")
+        return
+
+    for r in rows:
+        click.echo(
+            f"{r['id']} [{r['status']:<16}] "
+            f"goal={r['goal_id']} "
+            f"started={r['started_at']} "
+            f"tokens={r['total_cost_tokens']}"
+        )
+
+
+@cli.command("recent-steps")
+@click.option("--limit", type=int, default=30, show_default=True)
+def recent_steps(limit: int) -> None:
+    """Последние N шагов across all trajectories."""
+    from harnes.memory.episodic import EpisodicStore
+
+    settings = get_settings()
+    Path(settings.memory.lancedb_path).mkdir(parents=True, exist_ok=True)
+    episodic = EpisodicStore(settings.memory.lancedb_path)
+
+    rows = episodic.recent_steps(limit=limit)
+    if not rows:
+        click.echo("(no steps)")
+        return
+
+    for r in rows:
+        click.echo(
+            f"{r['timestamp']} [{r['step_type']:>12}] "
+            f"traj={r['trajectory_id'][:8]}… "
+            f"cost={r['cost_tokens']}t"
+        )
+
+
+@cli.command("goal-tree")
+@click.argument("goal_id")
+def goal_tree(goal_id: str) -> None:
+    """ASCII-дерево потомков (рекурсивно по parent_id) + список depends_on."""
+    repo = _open_repo()
+    root = repo.get(UUID(goal_id))
+    if root is None:
+        click.echo(f"Goal {goal_id} not found", err=True)
+        sys.exit(1)
+
+    def _walk(node: "Goal", prefix: str = "", is_last: bool = True) -> None:  # type: ignore[name-defined]
+        marker = "└── " if is_last else "├── "
+        click.echo(
+            f"{prefix}{marker}{node.id} [{node.status.value:<16}] "
+            f"prio={node.priority:>2} :: {node.description}"
+        )
+        if node.depends_on:
+            for dep_id in node.depends_on:
+                click.echo(f"{prefix}{'    ' if is_last else '│   '}    depends_on → {dep_id}")
+        children = repo.list_children(node.id)
+        next_prefix = prefix + ("    " if is_last else "│   ")
+        for i, c in enumerate(children):
+            _walk(c, next_prefix, i == len(children) - 1)
+
+    _walk(root)
+
+
 # ---------- run-tick ----------
 
 

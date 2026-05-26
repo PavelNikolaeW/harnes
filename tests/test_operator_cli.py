@@ -109,3 +109,73 @@ def test_run_tick_processes_goal(isolated_cli: CliRunner) -> None:
     # Проверить, что цель теперь DONE
     list_result = isolated_cli.invoke(cli, ["list-goals", "--status", "done"])
     assert "test goal" in list_result.output
+
+
+# ---------- v0.1: bootstrap-standing ----------
+
+
+def test_bootstrap_standing_creates_set(isolated_cli: CliRunner) -> None:
+    result = isolated_cli.invoke(cli, ["bootstrap-standing"])
+    assert result.exit_code == 0
+    assert "Created" in result.output
+    assert "on_alert_observation" in result.output or "alerts" in result.output
+
+    # idempotent
+    second = isolated_cli.invoke(cli, ["bootstrap-standing"])
+    assert "already exist" in second.output
+
+
+# ---------- v0.1: trace explorer ----------
+
+
+def test_recent_trajectories_empty(isolated_cli: CliRunner) -> None:
+    result = isolated_cli.invoke(cli, ["recent-trajectories"])
+    assert result.exit_code == 0
+    assert "(no trajectories)" in result.output
+
+
+def test_recent_steps_empty(isolated_cli: CliRunner) -> None:
+    result = isolated_cli.invoke(cli, ["recent-steps"])
+    assert result.exit_code == 0
+    assert "(no steps)" in result.output
+
+
+def test_recent_trajectories_after_tick(isolated_cli: CliRunner) -> None:
+    """run-tick (stub ReAct) пишет trajectory → recent-trajectories её показывает."""
+    isolated_cli.invoke(cli, ["enter-goal", "x", "--predicate", "structural"])
+    isolated_cli.invoke(cli, ["run-tick"])
+
+    result = isolated_cli.invoke(cli, ["recent-trajectories"])
+    assert result.exit_code == 0
+    assert "success" in result.output
+
+
+def test_inspect_trajectory_unknown(isolated_cli: CliRunner) -> None:
+    fake_uuid = "00000000-0000-0000-0000-000000000000"
+    result = isolated_cli.invoke(cli, ["inspect-trajectory", fake_uuid])
+    assert result.exit_code == 1
+    assert "not found" in result.output
+
+
+def test_inspect_trajectory_after_tick(isolated_cli: CliRunner) -> None:
+    """Создаём trajectory через тик, потом inspect её через CLI."""
+    isolated_cli.invoke(cli, ["enter-goal", "x", "--predicate", "structural"])
+    isolated_cli.invoke(cli, ["run-tick"])
+
+    list_result = isolated_cli.invoke(cli, ["recent-trajectories"])
+    traj_id = list_result.output.strip().split()[0]
+
+    result = isolated_cli.invoke(cli, ["inspect-trajectory", traj_id])
+    assert result.exit_code == 0
+    assert "Trajectory" in result.output
+    assert "Steps" in result.output
+
+
+def test_goal_tree_single(isolated_cli: CliRunner) -> None:
+    isolated_cli.invoke(cli, ["enter-goal", "root goal"])
+    list_result = isolated_cli.invoke(cli, ["list-goals"])
+    goal_id = list_result.output.strip().split()[0]
+
+    result = isolated_cli.invoke(cli, ["goal-tree", goal_id])
+    assert result.exit_code == 0
+    assert "root goal" in result.output
