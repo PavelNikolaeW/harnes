@@ -49,3 +49,8 @@ tick:
 
 eval:
   history_db_path: "/app/data/eval_history.db"
+
+metacycle:
+  # v1.0 #35 — journal событий и snapshot для recovery в долгом run-loop.
+  journal_db_path: "/app/data/metacycle_journal.db"
+  snapshot_every_ticks: 50

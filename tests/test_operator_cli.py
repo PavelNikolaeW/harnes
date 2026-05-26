@@ -27,6 +27,11 @@ def isolated_cli(
     # WorldModelStore swallows connection errors, тест проверяет только
     # CLI-механику, не side-channel в KG.
     monkeypatch.setenv("MEMORY__NEO4J_URI", "bolt://nowhere.invalid:7687")
+    # v1.0 #25/#35: eval history + metacycle journal в tmp_path.
+    monkeypatch.setenv("EVAL__HISTORY_DB_PATH", str(tmp_path / "eval_history.db"))
+    monkeypatch.setenv(
+        "METACYCLE__JOURNAL_DB_PATH", str(tmp_path / "metacycle_journal.db")
+    )
     return CliRunner()
 
 

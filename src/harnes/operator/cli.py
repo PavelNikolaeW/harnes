@@ -452,7 +452,33 @@ def run_tick_cmd(real: bool, world: bool) -> None:
     show_default=True,
     help="Подключать ли WorldModelStore (Graphiti+Neo4j)",
 )
-def run_loop(interval: float, stub: bool, max_ticks: int | None, world: bool) -> None:
+@click.option(
+    "--journal/--no-journal",
+    default=True,
+    show_default=True,
+    help="v1.0: писать события и snapshot в journal SQLite",
+)
+@click.option(
+    "--resume/--no-resume",
+    default=True,
+    show_default=True,
+    help="v1.0: при наличии последнего snapshot — продолжить с tick_id+1 и счётчиков",
+)
+@click.option(
+    "--snapshot-every",
+    type=int,
+    default=None,
+    help="v1.0: snapshot каждые N тиков (по умолчанию — из config.metacycle.snapshot_every_ticks)",
+)
+def run_loop(
+    interval: float,
+    stub: bool,
+    max_ticks: int | None,
+    world: bool,
+    journal: bool,
+    resume: bool,
+    snapshot_every: int | None,
+) -> None:
     """Непрерывный метацикл. Ctrl+C — graceful shutdown.
 
     На каждом тике: sense → attend → goal_arbitration → (если active goal)
@@ -520,39 +546,108 @@ def run_loop(interval: float, stub: bool, max_ticks: int | None, world: bool) ->
 
         react_fn = real_react
 
+    # v1.0 #35 — Journal & snapshot.
+    tick_journal = None
+    snapshot_period = snapshot_every or settings.metacycle.snapshot_every_ticks
+    if journal:
+        from harnes.metacycle.journal import TickJournal, TickEventType
+
+        tick_journal = TickJournal(settings.metacycle.journal_db_path)
+
     log.info(
         "metacycle.loop.start",
         interval=interval,
         stub_mode=stub,
         max_ticks=max_ticks,
-    )
-    click.echo(
-        f"Running metacycle (interval={interval}s, "
-        f"react={'stub' if stub else 'real LLM'}, "
-        f"max_ticks={max_ticks or '∞'}). Ctrl+C to stop."
+        journal=journal,
+        resume=resume,
+        snapshot_every=snapshot_period,
     )
 
+    # Recovery: восстанавливаем счётчики и tick_id из последнего snapshot.
     tick_id = 0
     processed = 0
     idle_count = 0
+    error_count = 0
     ticks_with_self_spawn = 0
     total_self_spawned = 0
+    if tick_journal is not None and resume:
+        snap = tick_journal.latest_snapshot()
+        if snap is not None:
+            tick_id = snap.tick_id + 1
+            processed = snap.processed_count
+            idle_count = snap.idle_count
+            error_count = snap.error_count
+            ticks_with_self_spawn = snap.ticks_with_self_spawn
+            total_self_spawned = snap.total_self_spawned
+            click.echo(
+                f"Resuming from snapshot at tick={snap.tick_id} "
+                f"(processed={processed}, idle={idle_count}, errors={error_count}, "
+                f"self_spawned={total_self_spawned})."
+            )
+            log.info(
+                "metacycle.loop.resume",
+                from_tick=snap.tick_id,
+                next_tick=tick_id,
+            )
+
+    click.echo(
+        f"Running metacycle (interval={interval}s, "
+        f"react={'stub' if stub else 'real LLM'}, "
+        f"max_ticks={max_ticks or '∞'}, "
+        f"journal={'on' if tick_journal else 'off'}). Ctrl+C to stop."
+    )
+
+    if tick_journal is not None:
+        tick_journal.append(
+            tick_id=tick_id,
+            event_type=TickEventType.LOOP_STARTED,
+            payload={
+                "interval": interval,
+                "stub": stub,
+                "max_ticks": max_ticks,
+                "resumed": resume and tick_id > 0,
+            },
+        )
+
     try:
         while True:
             if max_ticks is not None and tick_id >= max_ticks:
                 log.info("metacycle.loop.max_ticks_reached", tick=tick_id)
                 break
 
-            state = run_tick(
-                tick_id=tick_id,
-                event_queue=[],
-                goal_repo=repo,
-                memory_router=router,
-                episodic=episodic,
-                react_fn=react_fn,
-                world=world_store,
-                skill_registry=skill_registry_for_reflect,
-            )
+            if tick_journal is not None:
+                tick_journal.append(tick_id, TickEventType.TICK_STARTED, {})
+
+            try:
+                state = run_tick(
+                    tick_id=tick_id,
+                    event_queue=[],
+                    goal_repo=repo,
+                    memory_router=router,
+                    episodic=episodic,
+                    react_fn=react_fn,
+                    world=world_store,
+                    skill_registry=skill_registry_for_reflect,
+                )
+            except Exception as exc:  # noqa: BLE001 — крах одного тика не должен валить loop
+                error_count += 1
+                log.error(
+                    "metacycle.loop.tick_crashed",
+                    tick=tick_id,
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
+                if tick_journal is not None:
+                    tick_journal.append(
+                        tick_id,
+                        TickEventType.ERROR,
+                        {"error": str(exc), "error_type": type(exc).__name__},
+                    )
+                tick_id += 1
+                if max_ticks is None or tick_id < max_ticks:
+                    time.sleep(interval)
+                continue
 
             # v1.0 #33 — счётчики self-generated целей.
             if state.spawned_goals:
@@ -564,10 +659,25 @@ def run_loop(interval: float, stub: bool, max_ticks: int | None, world: bool) ->
                     count=len(state.spawned_goals),
                     descriptions=[g.description[:80] for g in state.spawned_goals],
                 )
+                if tick_journal is not None:
+                    for g in state.spawned_goals:
+                        tick_journal.append(
+                            tick_id,
+                            TickEventType.GOAL_SPAWNED,
+                            {
+                                "goal_id": str(g.id),
+                                "goal_class": g.goal_class.value,
+                                "origin": g.origin.value,
+                                "originator": g.originator,
+                                "description": g.description[:200],
+                            },
+                        )
 
             if state.idle:
                 idle_count += 1
                 log.debug("metacycle.loop.idle_tick", tick=tick_id)
+                if tick_journal is not None:
+                    tick_journal.append(tick_id, TickEventType.TICK_IDLE, {})
             else:
                 processed += 1
                 verdict = state.verdict.status.value if state.verdict else "none"
@@ -581,6 +691,37 @@ def run_loop(interval: float, stub: bool, max_ticks: int | None, world: bool) ->
                     verdict=verdict,
                     goal_status=goal_status,
                 )
+                if tick_journal is not None:
+                    payload = {
+                        "goal_id": str(state.active_goal.id) if state.active_goal else None,
+                        "verdict": verdict,
+                        "goal_status": goal_status,
+                    }
+                    tick_journal.append(tick_id, TickEventType.TICK_DONE, payload)
+                    if goal_status == "done":
+                        tick_journal.append(
+                            tick_id, TickEventType.GOAL_COMPLETED, payload
+                        )
+                    elif goal_status == "failed":
+                        tick_journal.append(
+                            tick_id, TickEventType.GOAL_FAILED, payload
+                        )
+
+            # Snapshot для recovery каждые N тиков.
+            if (
+                tick_journal is not None
+                and snapshot_period > 0
+                and (tick_id + 1) % snapshot_period == 0
+            ):
+                tick_journal.snapshot(
+                    tick_id=tick_id,
+                    processed_count=processed,
+                    idle_count=idle_count,
+                    error_count=error_count,
+                    ticks_with_self_spawn=ticks_with_self_spawn,
+                    total_self_spawned=total_self_spawned,
+                )
+                log.debug("metacycle.loop.snapshot", tick=tick_id)
 
             tick_id += 1
 
@@ -593,17 +734,39 @@ def run_loop(interval: float, stub: bool, max_ticks: int | None, world: bool) ->
         if world_store is not None:
             world_store.close()
         self_gen_rate = ticks_with_self_spawn / tick_id if tick_id > 0 else 0.0
+        # Финальный snapshot для возможности resume.
+        if tick_journal is not None and tick_id > 0:
+            tick_journal.snapshot(
+                tick_id=tick_id - 1,
+                processed_count=processed,
+                idle_count=idle_count,
+                error_count=error_count,
+                ticks_with_self_spawn=ticks_with_self_spawn,
+                total_self_spawned=total_self_spawned,
+            )
+            tick_journal.append(
+                tick_id - 1,
+                TickEventType.LOOP_STOPPED,
+                {
+                    "processed": processed,
+                    "idle": idle_count,
+                    "errors": error_count,
+                    "self_spawned": total_self_spawned,
+                },
+            )
         log.info(
             "metacycle.loop.stopped",
             total_ticks=tick_id,
             processed=processed,
             idle=idle_count,
+            errors=error_count,
             ticks_with_self_spawn=ticks_with_self_spawn,
             total_self_spawned=total_self_spawned,
             self_generation_rate=self_gen_rate,
         )
         click.echo(
-            f"Stopped after {tick_id} ticks ({processed} processed, {idle_count} idle).\n"
+            f"Stopped after {tick_id} ticks ({processed} processed, {idle_count} idle, "
+            f"{error_count} errors).\n"
             f"  Self-generated: {total_self_spawned} goals "
             f"in {ticks_with_self_spawn}/{tick_id} ticks "
             f"({self_gen_rate:.1%} self_generation_rate)."
@@ -1114,6 +1277,104 @@ def eval_compare_cmd(baseline_id: int, candidate_id: int | None) -> None:
     if baseline.config_hash != candidate.config_hash:
         click.echo(
             f"  config_hash: {baseline.config_hash} → {candidate.config_hash} (config changed)"
+        )
+
+
+# ---------- tick-journal (v1.0 #35) ----------
+
+
+@cli.command("tick-journal")
+@click.option(
+    "--limit",
+    type=int,
+    default=20,
+    show_default=True,
+    help="Сколько последних событий показать",
+)
+@click.option(
+    "--event-type",
+    type=str,
+    default=None,
+    help="Фильтр по event_type (tick_started, goal_spawned, ...)",
+)
+@click.option(
+    "--tick-id",
+    type=int,
+    default=None,
+    help="События конкретного тика",
+)
+@click.option(
+    "--stats",
+    is_flag=True,
+    default=False,
+    help="Показать только сводную статистику",
+)
+def tick_journal_cmd(
+    limit: int,
+    event_type: str | None,
+    tick_id: int | None,
+    stats: bool,
+) -> None:
+    """Inspect tick-journal (v1.0 #35).
+
+    События пишутся run-loop'ом. Используй для observability долгих прогонов:
+    что агент делал в Х часу, сколько self-spawn'ов, где упал и т.д.
+    """
+    from harnes.metacycle.journal import TickEventType, TickJournal
+
+    settings = get_settings()
+    journal = TickJournal(settings.metacycle.journal_db_path)
+
+    if stats:
+        s = journal.stats()
+        click.echo(f"Total events     : {s['total_events']}")
+        click.echo(f"Total snapshots  : {s['total_snapshots']}")
+        click.echo(f"Tick range       : {s['min_tick_id']} → {s['max_tick_id']}")
+        click.echo("\nBy event_type:")
+        for t, c in sorted(s["by_event_type"].items(), key=lambda x: -x[1]):
+            click.echo(f"  {t:<22}: {c}")
+        snap = journal.latest_snapshot()
+        if snap is not None:
+            click.echo("\nLatest snapshot:")
+            click.echo(f"  tick_id              : {snap.tick_id}")
+            click.echo(f"  ts                   : {snap.timestamp.isoformat()}")
+            click.echo(f"  processed            : {snap.processed_count}")
+            click.echo(f"  idle                 : {snap.idle_count}")
+            click.echo(f"  errors               : {snap.error_count}")
+            click.echo(f"  ticks_with_self_spawn: {snap.ticks_with_self_spawn}")
+            click.echo(f"  total_self_spawned   : {snap.total_self_spawned}")
+        return
+
+    et: TickEventType | None = None
+    if event_type is not None:
+        try:
+            et = TickEventType(event_type)
+        except ValueError:
+            click.echo(
+                f"Unknown event_type {event_type!r}. Available: "
+                + ", ".join(e.value for e in TickEventType),
+                err=True,
+            )
+            sys.exit(1)
+
+    events = journal.recent_events(limit=limit, event_type=et, tick_id=tick_id)
+    if not events:
+        click.echo("(no events)")
+        return
+
+    click.echo(
+        f"{'ts':<20}  {'tick':>5}  {'event_type':<18}  payload"
+    )
+    click.echo("-" * 100)
+    for e in events:
+        try:
+            payload = json.loads(e.payload_json)
+            payload_str = ", ".join(f"{k}={v}" for k, v in payload.items())
+        except json.JSONDecodeError:
+            payload_str = e.payload_json
+        click.echo(
+            f"{e.timestamp.strftime('%Y-%m-%d %H:%M:%S'):<20}  "
+            f"{e.tick_id:>5}  {e.event_type:<18}  {payload_str[:80]}"
         )
 
 

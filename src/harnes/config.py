@@ -85,6 +85,14 @@ class EvalConfig(BaseModel):
     history_db_path: Path = Path("/app/data/eval_history.db")
 
 
+class MetacycleConfig(BaseModel):
+    """Метацикл — journal и snapshot для долгого run-loop (см. v1.0 #35)."""
+
+    journal_db_path: Path = Path("/app/data/metacycle_journal.db")
+    # Каждые N тиков делается snapshot для recovery.
+    snapshot_every_ticks: int = 50
+
+
 class Settings(BaseSettings):
     """Root settings object.
 
@@ -109,6 +117,7 @@ class Settings(BaseSettings):
     logging: LoggingConfig = LoggingConfig()
     tick: TickConfig = TickConfig()
     eval: EvalConfig = EvalConfig()
+    metacycle: MetacycleConfig = MetacycleConfig()
 
     @classmethod
     def settings_customise_sources(
