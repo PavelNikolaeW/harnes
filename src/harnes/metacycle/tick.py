@@ -37,6 +37,7 @@ from harnes.metacycle.schema import (
     Verdict,
     VerifyStatus,
 )
+from harnes.metacycle.verifiers import verify as _verify_dispatch
 from harnes.react.schema import Trajectory, TrajectoryStatus
 
 log = structlog.get_logger()
@@ -181,42 +182,15 @@ def react_loop_stage(state: TickState, react_fn: ReactFn) -> TickState:
 
 
 def verify_stage(state: TickState) -> TickState:
-    """v0: только structural-предикат проверяется как «final_state не None»."""
+    """Делегирует в harnes.metacycle.verifiers.verify (per-predicate dispatch).
+
+    Поддерживает: structural, judge (LLM-судья), external (deferred).
+    State_change и composite в v0.1 — stub UNDETERMINED.
+    """
     if state.trajectory is None or state.active_goal is None:
         return state
 
-    predicate = state.active_goal.predicate_of_success
-
-    if predicate.type == "structural":
-        # Минимальная проверка — final_state должен быть. Полная JSON-schema
-        # валидация — задача отдельной итерации.
-        if state.trajectory.final_state is not None:
-            state.verdict = Verdict(
-                status=VerifyStatus.SUCCESS,
-                reasons=["final_state present"],
-                measured_by="structural",
-            )
-        else:
-            state.verdict = Verdict(
-                status=VerifyStatus.FAIL,
-                reasons=["final_state missing"],
-                measured_by="structural",
-            )
-    elif predicate.type == "external":
-        # Регистрируется в pending_verifications (TODO: пробросить goal_repo
-        # сюда; пока — UNDETERMINED).
-        state.verdict = Verdict(
-            status=VerifyStatus.UNDETERMINED,
-            reasons=["external predicate — verification deferred"],
-            measured_by="external",
-        )
-    else:
-        # judge, composite, state_change — детальная реализация в следующих итерациях
-        state.verdict = Verdict(
-            status=VerifyStatus.UNDETERMINED,
-            reasons=[f"{predicate.type} predicate not yet implemented"],
-            measured_by=predicate.type,
-        )
+    state.verdict = _verify_dispatch(state.trajectory, state.active_goal)
 
     log.info(
         "metacycle.verify",
