@@ -723,6 +723,26 @@ def run_eval(
         tool_registry = get_registry()
 
         def agent_run(goal):
+            # Multi-turn injection: если goal.metadata.chunks есть, создаём
+            # task-scoped registry с recall_memory tool'ом, привязанным к
+            # in-memory store с этими chunks. Иначе обычный flow.
+            chunks = goal.metadata.get("chunks") if isinstance(goal.metadata, dict) else None
+            if chunks:
+                from harnes.eval.multi_turn import build_task_registry
+
+                task_registry, _store = build_task_registry(chunks)
+                task_skill = general.model_copy(
+                    update={
+                        "allowed_tools": list(general.allowed_tools) + ["recall_memory"]
+                    }
+                )
+                return run_react(
+                    active_goal=goal,
+                    skill=task_skill,
+                    tool_registry=task_registry,
+                    max_steps=8,
+                    budget_tokens=30_000,
+                )
             return run_react(
                 active_goal=goal,
                 skill=general,

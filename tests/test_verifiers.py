@@ -296,11 +296,13 @@ def test_state_change_subset_match_works(tmp_path) -> None:
     assert v.status == VerifyStatus.SUCCESS
 
 
-def test_composite_is_stub() -> None:
+def test_composite_without_repo_is_undetermined() -> None:
+    """В v0.3 composite реализован, но без goal_repo он не может опросить children."""
     goal = _goal_with(CompositePredicate())
     traj = _traj_with_final(None)
     v = verify_composite(goal.predicate_of_success, traj, goal)
     assert v.status == VerifyStatus.UNDETERMINED
+    assert "needs goal_repo" in v.reasons[0]
 
 
 def test_external_is_undetermined() -> None:

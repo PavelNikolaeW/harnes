@@ -272,11 +272,150 @@ def verify_composite(
     predicate: CompositePredicate,
     trajectory: Trajectory,
     goal: Goal,
+    goal_repo: Any = None,
+    llm_call: Callable[..., Any] | None = None,
 ) -> Verdict:
-    """v0: stub — нужен goal_repo для обхода children. Подключим в v0.2."""
+    """Aggregation verifier — итог по детям.
+
+    Триггерится корректно только когда все children в терминальном статусе.
+    Если хотя бы один ещё не done/failed/abandoned — возвращает UNDETERMINED.
+
+    Aggregation:
+    - ALL    — все дети должны быть в статусе DONE; иначе FAIL.
+    - CUSTOM — judge-LLM смотрит на статусы детей + predicate.custom_check и
+      принимает решение.
+    """
+    if goal_repo is None:
+        return Verdict(
+            status=VerifyStatus.UNDETERMINED,
+            reasons=["composite verifier needs goal_repo"],
+            measured_by="composite",
+        )
+
+    from harnes.goals.schema import Aggregation, GoalStatus
+
+    children = goal_repo.list_children(goal.id)
+    if not children:
+        return Verdict(
+            status=VerifyStatus.UNDETERMINED,
+            reasons=["composite goal has no children"],
+            measured_by="composite",
+        )
+
+    terminal = {GoalStatus.DONE, GoalStatus.FAILED, GoalStatus.ABANDONED}
+    non_terminal = [c for c in children if c.status not in terminal]
+    if non_terminal:
+        return Verdict(
+            status=VerifyStatus.UNDETERMINED,
+            reasons=[
+                f"composite waits: {len(non_terminal)} of {len(children)} children "
+                "still non-terminal"
+            ],
+            evidence=[
+                {
+                    "non_terminal_count": len(non_terminal),
+                    "total_children": len(children),
+                }
+            ],
+            measured_by="composite",
+        )
+
+    statuses = [c.status for c in children]
+    done_count = sum(1 for s in statuses if s == GoalStatus.DONE)
+    failed_count = sum(1 for s in statuses if s == GoalStatus.FAILED)
+    abandoned_count = sum(1 for s in statuses if s == GoalStatus.ABANDONED)
+    summary = {
+        "done": done_count,
+        "failed": failed_count,
+        "abandoned": abandoned_count,
+        "total": len(children),
+    }
+
+    aggregation = predicate.aggregation or Aggregation.ALL
+
+    if aggregation == Aggregation.ALL:
+        all_done = done_count == len(children)
+        return Verdict(
+            status=VerifyStatus.SUCCESS if all_done else VerifyStatus.FAIL,
+            reasons=[
+                f"aggregation=all: {done_count}/{len(children)} children done"
+            ],
+            evidence=[summary],
+            measured_by="composite",
+        )
+
+    if aggregation == Aggregation.CUSTOM:
+        # Judge-LLM проверяет custom_check относительно сводки и описаний.
+        if llm_call is None:
+            from harnes.llm import call as default_call
+
+            llm_call = default_call
+
+        children_summary = "\n".join(
+            f"- [{c.status.value}] {c.description}" for c in children
+        )
+        user_prompt = f"""Composite goal verification.
+
+Parent goal: {goal.description}
+Custom criterion: {predicate.custom_check or '(none)'}
+
+Children statuses ({len(children)} total):
+{children_summary}
+
+Aggregation: custom. Based on the criterion and the children's outcomes,
+did the parent goal succeed?
+
+Reply with strict JSON only:
+{{"success": true|false, "reasoning": "<one short sentence>"}}"""
+
+        try:
+            response = llm_call(
+                [
+                    {
+                        "role": "system",
+                        "content": _JUDGE_SYSTEM_PROMPT,  # переиспользуем judge-роль
+                    },
+                    {"role": "user", "content": user_prompt},
+                ],
+                tier="light",
+                max_tokens=200,
+            )
+            text = response.choices[0].message.content or ""
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "verify.composite.judge_failed",
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            return Verdict(
+                status=VerifyStatus.UNDETERMINED,
+                reasons=[f"composite custom-judge failed: {type(exc).__name__}"],
+                evidence=[summary],
+                measured_by="composite",
+            )
+
+        parsed = _parse_judge_json(text)
+        if parsed is None:
+            return Verdict(
+                status=VerifyStatus.UNDETERMINED,
+                reasons=["composite custom-judge returned unparseable output"],
+                evidence=[summary, {"raw": text[:300]}],
+                measured_by="composite",
+            )
+
+        success = bool(parsed.get("success", False))
+        reasoning = str(parsed.get("reasoning", "")).strip()
+        return Verdict(
+            status=VerifyStatus.SUCCESS if success else VerifyStatus.FAIL,
+            reasons=[reasoning] if reasoning else [],
+            evidence=[summary],
+            measured_by="composite",
+        )
+
     return Verdict(
         status=VerifyStatus.UNDETERMINED,
-        reasons=["composite verifier not yet implemented (v0.2)"],
+        reasons=[f"unknown aggregation: {aggregation}"],
+        evidence=[summary],
         measured_by="composite",
     )
 
@@ -307,8 +446,12 @@ def verify(
     trajectory: Trajectory,
     goal: Goal,
     llm_call: Callable[..., Any] | None = None,
+    goal_repo: Any = None,
 ) -> Verdict:
-    """Главный entry-point — диспетчер по типу предиката."""
+    """Главный entry-point — диспетчер по типу предиката.
+
+    goal_repo нужен только composite-предикату для обхода children.
+    """
     predicate = goal.predicate_of_success
     if isinstance(predicate, StructuralPredicate):
         return verify_structural(predicate, trajectory, goal)
@@ -317,10 +460,9 @@ def verify(
     if isinstance(predicate, StateChangePredicate):
         return verify_state_change(predicate, trajectory, goal)
     if isinstance(predicate, CompositePredicate):
-        return verify_composite(predicate, trajectory, goal)
+        return verify_composite(predicate, trajectory, goal, goal_repo=goal_repo, llm_call=llm_call)
     if isinstance(predicate, ExternalPredicate):
         return verify_external(predicate, trajectory, goal)
-    # Should be unreachable — discriminated union covers all cases.
     return Verdict(
         status=VerifyStatus.UNDETERMINED,
         reasons=[f"unknown predicate type: {type(predicate).__name__}"],

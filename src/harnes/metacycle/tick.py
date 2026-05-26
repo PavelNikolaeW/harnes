@@ -181,16 +181,18 @@ def react_loop_stage(state: TickState, react_fn: ReactFn) -> TickState:
     return state
 
 
-def verify_stage(state: TickState) -> TickState:
+def verify_stage(state: TickState, goal_repo: Any = None) -> TickState:
     """Делегирует в harnes.metacycle.verifiers.verify (per-predicate dispatch).
 
-    Поддерживает: structural, judge (LLM-судья), external (deferred).
-    State_change и composite в v0.1 — stub UNDETERMINED.
+    Поддерживает: structural, judge (LLM), state_change (tool), composite
+    (aggregation over children — нужен goal_repo), external (deferred).
     """
     if state.trajectory is None or state.active_goal is None:
         return state
 
-    state.verdict = _verify_dispatch(state.trajectory, state.active_goal)
+    state.verdict = _verify_dispatch(
+        state.trajectory, state.active_goal, goal_repo=goal_repo
+    )
 
     log.info(
         "metacycle.verify",
@@ -332,7 +334,7 @@ def run_tick(
 
     state = recall_stage(state, memory_router)
     state = react_loop_stage(state, react_fn)
-    state = verify_stage(state)
+    state = verify_stage(state, goal_repo=goal_repo)
     state = world_update_stage(state, world)
     state = store_stage(state, episodic, goal_repo)
 
