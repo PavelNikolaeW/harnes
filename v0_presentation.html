@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>harnes v0 — status &amp; roadmap</title>
+<style>
+  :root {
+    --fg: #1a1a1a;
+    --fg-soft: #555;
+    --fg-mute: #888;
+    --bg: #fdfdfb;
+    --bg-soft: #f3f1ec;
+    --bg-code: #efece5;
+    --accent: #634;
+    --accent-soft: #a78;
+    --green: #2a6a3a;
+    --amber: #966;
+    --blue: #345;
+    --border: #d8d4cc;
+    --border-strong: #999;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-snap-type: y mandatory; scroll-behavior: smooth; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.5;
+  }
+
+  section.slide {
+    min-height: 100vh;
+    padding: 56px 64px;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    position: relative;
+    border-bottom: 1px solid var(--border);
+  }
+
+  section.slide > .content {
+    max-width: 1100px;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  /* Title slide */
+  section.title {
+    justify-content: center;
+    text-align: center;
+    background: linear-gradient(180deg, #fdfdfb 0%, #f3f1ec 100%);
+  }
+  section.title h1 {
+    font-size: 64px;
+    font-weight: 700;
+    margin-bottom: 16px;
+    letter-spacing: -0.02em;
+  }
+  section.title .subtitle {
+    font-size: 22px;
+    color: var(--fg-soft);
+    margin-bottom: 48px;
+    font-weight: 400;
+  }
+  section.title .meta {
+    font-size: 14px;
+    color: var(--fg-mute);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  h2.slide-title {
+    font-size: 36px;
+    margin-bottom: 28px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid var(--accent);
+    color: var(--accent);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  h3 {
+    font-size: 19px;
+    margin: 20px 0 10px;
+    color: var(--fg);
+    font-weight: 600;
+  }
+
+  p { margin: 0 0 12px; font-size: 16px; }
+
+  .lead {
+    font-size: 19px;
+    color: var(--fg-soft);
+    margin-bottom: 24px;
+    line-height: 1.55;
+  }
+
+  ul, ol { padding-left: 24px; margin-bottom: 16px; }
+  li { margin: 6px 0; font-size: 16px; }
+
+  code {
+    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+    font-size: 13px;
+    background: var(--bg-code);
+    padding: 1px 6px;
+    border-radius: 3px;
+  }
+
+  pre {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px 20px;
+    overflow-x: auto;
+    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+    font-size: 13px;
+    line-height: 1.55;
+    margin: 14px 0;
+  }
+  pre code { background: transparent; padding: 0; font-size: inherit; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0;
+    font-size: 15px;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    background: var(--bg-soft);
+    font-weight: 600;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--fg-soft);
+  }
+
+  /* Pill / chip / badge */
+  .chip {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .chip.done { background: #e0f0e0; color: var(--green); }
+  .chip.next { background: #fff0d6; color: var(--amber); }
+  .chip.research { background: #e0e8f4; color: var(--blue); }
+  .chip.skip { background: #eee; color: var(--fg-mute); }
+
+  /* Metric callouts */
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    margin: 24px 0;
+  }
+  .metric {
+    background: var(--bg-soft);
+    border-left: 4px solid var(--accent);
+    padding: 16px 18px;
+    border-radius: 4px;
+  }
+  .metric .n {
+    font-size: 36px;
+    font-weight: 700;
+    color: var(--accent);
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+  .metric .label {
+    font-size: 13px;
+    color: var(--fg-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  /* Value/effort quadrant */
+  .quadrant {
+    display: grid;
+    grid-template-columns: 80px 1fr 1fr;
+    grid-template-rows: 40px 1fr 1fr;
+    gap: 8px;
+    margin: 16px 0;
+    min-height: 460px;
+  }
+  .quadrant .axis-x, .quadrant .axis-y {
+    background: var(--bg-soft);
+    text-align: center;
+    font-weight: 600;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--fg-soft);
+    padding: 12px;
+    border-radius: 4px;
+  }
+  .quadrant .axis-y { writing-mode: vertical-rl; transform: rotate(180deg); }
+  .quadrant .cell {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+    background: white;
+    font-size: 14px;
+  }
+  .quadrant .cell.go { background: #f5f9f5; border-color: var(--green); }
+  .quadrant .cell.bet { background: #fafafa; border-color: var(--accent-soft); }
+  .quadrant .cell.minor { background: #fafafa; }
+  .quadrant .cell.skip { background: #f5f5f5; opacity: 0.7; }
+  .quadrant .cell h4 {
+    font-size: 13px;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--fg-soft);
+  }
+  .quadrant .cell ul { padding-left: 18px; margin: 0; }
+  .quadrant .cell li { font-size: 13px; margin: 4px 0; }
+
+  /* Ranked list */
+  .ranked {
+    counter-reset: rank;
+    list-style: none;
+    padding-left: 0;
+  }
+  .ranked > li {
+    counter-increment: rank;
+    background: var(--bg-soft);
+    border-left: 4px solid var(--accent);
+    padding: 14px 18px 14px 60px;
+    margin: 10px 0;
+    border-radius: 4px;
+    position: relative;
+  }
+  .ranked > li::before {
+    content: counter(rank);
+    position: absolute;
+    left: 16px;
+    top: 14px;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--accent);
+    width: 30px;
+    text-align: center;
+  }
+  .ranked .item-title {
+    font-weight: 600;
+    font-size: 16px;
+    margin-bottom: 4px;
+  }
+  .ranked .item-meta {
+    font-size: 13px;
+    color: var(--fg-soft);
+    margin-bottom: 6px;
+  }
+  .ranked .item-meta .est {
+    display: inline-block;
+    padding: 1px 8px;
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-right: 8px;
+    font-family: "SF Mono", monospace;
+    font-size: 12px;
+  }
+  .ranked .item-desc {
+    font-size: 14px;
+    color: var(--fg);
+  }
+
+  /* Progress dots */
+  .progress {
+    position: fixed;
+    top: 16px;
+    right: 24px;
+    display: flex;
+    gap: 6px;
+    z-index: 10;
+  }
+  .progress .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--border);
+  }
+  .progress .dot.active { background: var(--accent); }
+
+  .hint {
+    position: fixed;
+    bottom: 16px;
+    right: 24px;
+    font-size: 12px;
+    color: var(--fg-mute);
+    background: var(--bg-soft);
+    padding: 6px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    z-index: 10;
+  }
+
+  /* Code block flavor */
+  pre.demo {
+    background: #1a1a1a;
+    color: #d4d4d4;
+    border: none;
+    font-size: 12.5px;
+  }
+  pre.demo .ok { color: #7cb342; }
+  pre.demo .info { color: #5a9ee0; }
+  pre.demo .dim { color: #888; }
+
+  /* Two-column */
+  .cols-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+    margin: 16px 0;
+  }
+
+  /* Compact list (for stack table-ish) */
+  .stack-grid {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 6px 24px;
+    margin: 16px 0;
+    font-size: 15px;
+  }
+  .stack-grid .label {
+    font-weight: 600;
+    color: var(--fg-soft);
+  }
+
+  @media print {
+    section.slide {
+      min-height: auto;
+      page-break-after: always;
+      padding: 32px 40px;
+      border: none;
+    }
+    .progress, .hint { display: none; }
+    pre.demo { background: white; color: #1a1a1a; }
+  }
+
+  @media (max-width: 900px) {
+    section.slide { padding: 32px 24px; }
+    section.title h1 { font-size: 40px; }
+    .metrics { grid-template-columns: repeat(2, 1fr); }
+    .cols-2 { grid-template-columns: 1fr; }
+    .quadrant {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto;
+    }
+    .quadrant .axis-x, .quadrant .axis-y { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="progress" id="progress"></div>
+<div class="hint">↓ ↑ или space — навигация</div>
+
+<!-- ================== 1. TITLE ================== -->
+<section class="slide title">
+  <div class="content">
+    <h1>harnes v0</h1>
+    <div class="subtitle">
+      Research wrapper around local LLMs<br>
+      Meta-cycle over ReAct для универсальных автономных агентов
+    </div>
+    <div class="meta">2026-05-26 &middot; статус + roadmap</div>
+  </div>
+</section>
+
+<!-- ================== 2. PROBLEM ================== -->
+<section class="slide">
+  <div class="content">
+    <h2 class="slide-title">Проблема</h2>
+    <p class="lead">
+      Универсальный автономный агент — конъюнкция трёх свойств, по отдельности
+      достигнутых, но не вместе.
+    </p>
+
+    <div class="cols-2">
+      <div>
+        <h3>Объект</h3>
+        <ul>
+          <li><strong>универсальный</strong> — относительно распределения задач (held-out)</li>
+          <li><strong>автономный</strong> — низкий локус и крупная зернистость контроля</li>
+          <li><strong>агент</strong> — действует на среду, не просто предсказывает</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Пробел</h3>
+        <ul>
+          <li>Фундаментальные модели: общность без действия</li>
+          <li>RPA: автономность без общности</li>
+          <li>Боты: агентность без общности и надёжности</li>
+          <li><strong>Открыт вопрос их конъюнкции</strong></li>
+        </ul>
+      </div>
+    </div>
+
+    <h3>Две измеримые оси</h3>
+    <ul>
+      <li><strong>Ширина распределения</strong> — оценка на не виданных при разработке средах</li>
+      <li><strong>Длина горизонта</strong> — компетентность во времени, нелинейная деградация (компаундинг ошибки)</li>
+    </ul>
+
+    <p style="margin-top: 20px;">
+      <strong>Критерий прогресса</strong> — производительность на отложенном распределении
+      при ограниченном бюджете вмешательств. Надёжность — first-class метрика.
+    </p>
+  </div>
+</section>
+
+<!-- ================== 3. HYPOTHESIS ================== -->
+<section class="slide">
+  <div class="content">
+    <h2 class="slide-title">Гипотеза</h2>
+    <p class="lead">
+      Метацикл поверх ReAct-цикла, работающий непрерывно, с явными этапами
+      восприятия, внимания, арбитража целей, recall'а, исполнения, верификации,
+      обновления модели мира, рефлексии и сохранения.
+    </p>
+
+    <pre><code>[tick]
+  sense                — polling + event-queue (без LLM)
+  attend               — score(relevance, novelty, urgency); standing-цели
+  goal_arbitration     — арбитраж + источник новых целей + pending_verifications
+                         + operator-approval flow для top-level self-целей
+  if active_goal:
+    recall(coarse)     — единый memory layer (vector + graph + episodic)
+    react_loop         — thought ↔ action ↔ observation
+    verify(immediate)  — leaf-level; composite/external → pending_verifications
+    world_update       — обновление явной модели мира (KG, темпоральный)
+    if reflect_trigger:
+      reflect          — режим выводится из триггера (batch, failure, periodic)
+    store              — маршрутизация в бэкенды памяти
+[end tick]</code></pre>
+
+    <p style="color: var(--fg-soft); font-style: italic;">
+      Полная архитектура — <code>agent_architecture.html</code>, 19 разделов,
+      63 пронумерованных решения.
+    </p>
+  </div>
+</section>
+
+<!-- ================== 4. STACK ================== -->
+<section class="slide">
+  <div class="content">
+    <h2 class="slide-title">Стек v0</h2>
+
+    <div class="stack-grid">
+      <div class="label">Язык / сборка</div><div>Python 3.12, <code>uv</code> + <code>pyproject.toml</code> + <code>uv.lock</code></div>
+      <div class="label">Runtime</div><div>Docker-контейнер агента + docker-compose (Qdrant + Neo4j)</div>
+      <div class="label">LLM serving</div><div><code>ll-router</code> на 192.168.0.111:8000 (llama.cpp под капотом)</div>
+      <div class="label">LLM client</div><div>LiteLLM</div>
+      <div class="label">v0 default model</div><div><code>gemma-26b-a4b</code> (MoE 4B active, Q4, ctx 128k)</div>
+      <div class="label">Резерв</div><div>gemma-31b-mtp, qwen-35b — для будущего тиринга</div>
+      <div class="label">Embeddings</div><div>fastembed + BGE-M3 (fallback пока нет <code>/v1/embeddings</code>)</div>
+      <div class="label">Episodic memory</div><div>LanceDB (embedded, versioned tables, time-travel)</div>
+      <div class="label">Semantic vector</div><div>Qdrant (docker)</div>
+      <div class="label">World model</div><div>Graphiti + Neo4j (docker) — wired как stub в v0</div>
+      <div class="label">Procedural store</div><div>git (skill bundles) + SQLite (per-version metrics)</div>
+      <div class="label">Goal store</div><div>SQLite</div>
+      <div class="label">Schema</div><div>Pydantic v2 (с discriminated unions)</div>
+      <div class="label">Logging</div><div>structlog + JSONL traces</div>
+      <div class="label">Operator</div><div>Click-CLI</div>
+      <div class="label">Tests</div><div>pytest + capture-and-replay через мок-LLM</div>
+      <div class="label">Eval harness</div><div>MemoryAgentBench (адаптер в v0.1)</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================== 5. BUILT ================== -->
+<section class="slide">
+  <div class="content">
+    <h2 class="slide-title">Что собрано</h2>
+
+    <div class="metrics">
+      <div class="metric"><div class="n">14 / 14</div><div class="label">задач v0</div></div>
+      <div class="metric"><div class="n">124</div><div class="label">тестов зелёных</div></div>
+      <div class="metric"><div class="n">~7770</div><div class="label">строк src + tests</div></div>
+      <div class="metric"><div class="n">~9s</div><div class="label">end-to-end на реальном LLM</div></div>
+    </div>
+
+    <table>
+      <thead><tr><th>#</th><th>Компонент</th><th>Тесты</th><th>Статус</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>Project skeleton + Docker (pyproject, Dockerfile, docker-compose)</td><td>—</td><td><span class="chip done">done</span></td></tr>
+        <tr><td>2</td><td>LiteLLM client wrapper (chat completions, health-check)</td><td>5</td><td><span class="chip done">done</span></td></tr>
+        <tr><td>3</td><td>Embeddings client (LiteLLM + fastembed BGE-M3 fallback)</td><td>3</td><td><span class="chip done">done</span></td></tr>
+        <tr><td>4</td><td>Pydantic schemas (Goal, Step, Trajectory, Skill, Tool, ...)</td><td>25</td><td><span class="chip done">done</span></td></tr>
+        <tr><td>5</td><td>Goal store on SQLite (CRUD, tree, approval flow, pending_verify)</td><td>17</td><td><span class="chip done">done</span></td></tr>
+        <tr><td>6</td><td>Skill registry (YAML bundles + SQLite per-version metrics)</td><td>10</td><td><span class="chip done">done</span></td></tr>
+        <tr><td>7</td><td>Tool registry + read_file/write_file + conditional irreversibility</td><td>14</td><td><span class="chip done">done</span></td></tr>
+        <tr><td>8</td><td>Memory layer (LanceDB + Qdrant + Graphiti stub + unified recall)</td><td>9</td><td><span class="chip done">done</span></td></tr>
+        <tr><td>9</td><td>Meta-cycle (9 этапов + tick driver)</td><td>13</td><td><span class="chip done">done</span></td></tr>
+        <tr><td>10</td><td>ReAct loop (Classic, 2-call iteration, loop-detector, budget)</td><td>11</td><td><span class="chip done">done</span></td></tr>
+        <tr><td>11</td><td>Operator CLI (enter/list/approve/reject/inspect/run-tick)</td><td>9</td><td><span class="chip done">done</span></td></tr>
+        <tr><td>12</td><td>Eval harness scaffolding (MemoryAgentBench adapter contract)</td><td>5</td><td><span class="chip done">done</span></td></tr>
+        <tr><td>13</td><td>E2E smoke test с реальным LLM</td><td>2 real</td><td><span class="chip done">done</span></td></tr>
+        <tr><td>14</td><td>Request <code>/v1/embeddings</code> (внешняя задача, документирована)</td><td>—</td><td><span class="chip done">done</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ================== 6. DEMO ================== -->
+<section class="slide">
+  <div class="content">
+    <h2 class="slide-title">Реальный end-to-end</h2>
+    <p class="lead">
+      Цель: <em>«Write the text 'harnes ok' to <code>&lt;path&gt;</code>.
+      Then use tool_id=finish with args.final_state=&#123;'done': true&#125;»</em>
+    </p>
+
+    <pre class="demo"><span class="info">[info]</span> metacycle.sense                    observations=0
+<span class="info">[info]</span> metacycle.attend                   salient=0
+<span class="info">[info]</span> metacycle.goal_arbitration.active  goal_id=c3e978a5… priority=1
+<span class="info">[info]</span> metacycle.recall                   episodic=0 semantic=0
+<span class="dim">[debug]</span> llm.call.start                    model=gemma-26b-a4b
+<span class="dim">[debug]</span> llm.call.done                     completion_tokens=207
+<span class="dim">[debug]</span> llm.call.start                    model=gemma-26b-a4b
+<span class="dim">[debug]</span> llm.call.done                     completion_tokens=96
+<span class="dim">[debug]</span> llm.call.start                    model=gemma-26b-a4b
+<span class="dim">[debug]</span> llm.call.done                     completion_tokens=500
+<span class="dim">[debug]</span> llm.call.start                    model=gemma-26b-a4b
+<span class="dim">[debug]</span> llm.call.done                     completion_tokens=22
+<span class="info">[info]</span> react.terminated.finish            steps=5 trajectory_id=696e4f8b…
+<span class="info">[info]</span> metacycle.react.done               status=success steps=5
+<span class="info">[info]</span> metacycle.verify                   verdict=success measured_by=structural
+<span class="dim">[debug]</span> episodic.trajectory.written        steps=5 trajectory_id=696e4f8b…
+<span class="dim">[debug]</span> metacycle.store.done               goal_status=done
+<span class="info">[info]</span> metacycle.tick.done                goal_status=done
+
+<span class="ok">[smoke] tick_id=0, verdict=SUCCESS, goal_status=DONE,
+        trajectory_steps=5, file_written=True</span></pre>
+
+    <p>
+      Локальная Gemma 26B-A4B (MoE, 4B активных параметров, Q4) реально:
+    </p>
+    <ul>
+      <li>Прочла цель из system-prompt</li>
+      <li>Сгенерировала валидный JSON action <code>{"tool_id": "write_file", "args": ...}</code></li>
+      <li>Tool-layer провалидировал, исполнил, записал файл</li>
+      <li>Эмитнула <code>{"tool_id": "finish", ...}</code> с <code>final_state</code></li>
+      <li>5 шагов, 825 completion-токенов, ~9 секунд wall-clock</li>
+      <li>Trajectory сохранена в LanceDB; goal → DONE</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================== 7. VALUE/EFFORT QUADRANT ================== -->
+<section class="slide">
+  <div class="content">
+    <h2 class="slide-title">Что дальше — матрица value × effort</h2>
+    <p class="lead">
+      Сортировка по соотношению полезности и трудозатрат. Зелёные клетки —
+      делать первыми; верхне-правые — research-bets, которые двигают
+      рамку «универсальности» / «длинного горизонта».
+    </p>
+
+    <div class="quadrant">
+      <div></div>
+      <div class="axis-x">Low effort</div>
+      <div class="axis-x">High effort</div>
+
+      <div class="axis-y">High value</div>
+      <div class="cell go">
+        <h4>Quick wins</h4>
+        <ul>
+          <li>Judge predicate через LLM-судью</li>
+          <li>Критик на irreversible-действиях</li>
+          <li>Multi-tier LLM (gemma-31b-mtp для thought)</li>
+          <li>Standing-цели стартового набора (5–10)</li>
+          <li>Trace explorer в CLI</li>
+        </ul>
+      </div>
+      <div class="cell bet">
+        <h4>Strategic bets</h4>
+        <ul>
+          <li>Reflect (failure_analysis → batch_consolidation)</li>
+          <li>Real Graphiti + Neo4j wiring</li>
+          <li>MemoryAgentBench реальный adapter</li>
+          <li>Self-generated goals (curiosity + maintenance)</li>
+          <li>Held-out evaluation set construction</li>
+        </ul>
+      </div>
+
+      <div class="axis-y">Low value</div>
+      <div class="cell minor">
+        <h4>По возможности</h4>
+        <ul>
+          <li>Запрос <code>/v1/embeddings</code> на ll-router</li>
+          <li>Docker compose smoke (контейнерный runtime)</li>
+          <li>Replace deprecated <code>table_names()</code> на новый API</li>
+          <li>Suppress LiteLLM/botocore warnings</li>
+        </ul>
+      </div>
+      <div class="cell skip">
+        <h4>Пропускаем (пока)</h4>
+        <ul>
+          <li>Subagent параллелизм (KISS: серийно)</li>
+          <li>Reflect полная спецификация всех 6 режимов</li>
+          <li>World model — полная схема узлов KG</li>
+          <li>Async тики и кооперативная многозадачность</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================== 8. RANKED LIST ================== -->
+<section class="slide">
+  <div class="content">
+    <h2 class="slide-title">Ranked: что делать в каком порядке</h2>
+    <p class="lead">Top-to-bottom по value/effort. Цифры — ориентировочные.</p>
+
+    <ol class="ranked">
+      <li>
+        <div class="item-title">Judge predicate через LLM-судью</div>
+        <div class="item-meta">
+          <span class="est">~30 LoC</span>
+          <span class="chip next">v0.1</span>
+          разблокирует goal'ы с открытым критерием
+        </div>
+        <div class="item-desc">
+          Сейчас verify умеет только <code>structural</code>. Добавим вызов
+          анти-коррелированной модели (другой системный промпт) для <code>judge</code>-предикатов.
+          Метрика «измерено LLM-судьёй» уже зашита в Verdict.measured_by.
+        </div>
+      </li>
+      <li>
+        <div class="item-title">Multi-tier LLM (gemma-31b-mtp для thought, gemma-26b-a4b для attend/verify)</div>
+        <div class="item-meta">
+          <span class="est">~20 LoC</span>
+          <span class="chip next">v0.1</span>
+          конфиг + 1 функция диспетчеризации
+        </div>
+        <div class="item-desc">
+          У нас есть 3 модели на сервере. Сейчас все запросы идут в Gemma-26B-A4B.
+          Параметризовать <code>llm.call(tier=...)</code> и подменять model id.
+        </div>
+      </li>
+      <li>
+        <div class="item-title">Критик на <code>is_irreversible=true</code></div>
+        <div class="item-meta">
+          <span class="est">~80 LoC</span>
+          <span class="chip next">v0.1</span>
+          снимает компаундинг на необратимых шагах
+        </div>
+        <div class="item-desc">
+          Отдельный модельный вызов с «ролью критика» перед action.is_irreversible=true.
+          Verdict из CritiqueStep уже определён в схеме; нужно только wired в loop.py.
+        </div>
+      </li>
+      <li>
+        <div class="item-title">Standing-цели стартового набора</div>
+        <div class="item-meta">
+          <span class="est">~100 LoC + YAML</span>
+          <span class="chip next">v0.1</span>
+          даёт «характер» агенту
+        </div>
+        <div class="item-desc">
+          5–10 политик: «при verify=fail с приоритетом≥P → inquiry: диагностика»,
+          «через N тиков без цели → inquiry: что делать», «episodic-лог &gt; M → maintenance».
+        </div>
+      </li>
+      <li>
+        <div class="item-title">Reflect в режиме <code>failure_analysis</code></div>
+        <div class="item-meta">
+          <span class="est">~200 LoC</span>
+          <span class="chip next">v0.2</span>
+          первый контур самоулучшения
+        </div>
+        <div class="item-desc">
+          На каждый <code>verify=fail</code> — reflect режима failure_analysis,
+          выход — обновлённая версия скилла (через SkillRegistry.save). Версионирование
+          через git-тег. Метрики per-version уже копятся.
+        </div>
+      </li>
+      <li>
+        <div class="item-title">Real Graphiti + Neo4j wiring (world_update)</div>
+        <div class="item-meta">
+          <span class="est">~300 LoC + async</span>
+          <span class="chip research">v0.2</span>
+          оживляет world model
+        </div>
+        <div class="item-desc">
+          Заменить stub в <code>memory/world.py</code> на реальный graphiti_core.
+          Async-обёртка <code>asyncio.run(...)</code> для синхронного метацикла.
+          Поднимать Neo4j в docker-compose (уже в файле).
+        </div>
+      </li>
+      <li>
+        <div class="item-title">MemoryAgentBench реальный adapter</div>
+        <div class="item-meta">
+          <span class="est">~500 LoC</span>
+          <span class="chip research">v0.2</span>
+          разблокирует sci-сопоставление
+        </div>
+        <div class="item-desc">
+          Реализовать <code>BenchmarkAdapter</code> Protocol для MemoryAgentBench
+          (ICLR 2026). Перевести их задачи в наши Goal'ы, верификация по их dataset-specific
+          критериям. Это даёт первые числа сравнимые с литературой.
+        </div>
+      </li>
+      <li>
+        <div class="item-title">Self-generated goals — curiosity + maintenance</div>
+        <div class="item-meta">
+          <span class="est">~400 LoC</span>
+          <span class="chip research">v1.0</span>
+          ключ к автономности
+        </div>
+        <div class="item-desc">
+          В <code>goal_arbitration</code> добавить модуль «гипотеза» — порождает inquiry-цели
+          из novelty в attend (curiosity) и из метрик памяти (maintenance: consolidate, prune).
+          Верхне-уровневые self-цели идут через operator-approval, уже реализовано.
+        </div>
+      </li>
+      <li>
+        <div class="item-title">Held-out evaluation set construction</div>
+        <div class="item-meta">
+          <span class="est">manual + ~200 LoC</span>
+          <span class="chip research">v1.0</span>
+          точка фальсифицируемости
+        </div>
+        <div class="item-desc">
+          Собрать набор задач из открытых распределений (не из MemoryAgentBench), на которых
+          разработка не велась. Это и есть «held-out» в твоём критерии прогресса.
+          Без него заявление об общности нефальсифицируемо.
+        </div>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<!-- ================== 9. MILESTONES ================== -->
+<section class="slide">
+  <div class="content">
+    <h2 class="slide-title">Roadmap по milestones</h2>
+
+    <table>
+      <thead>
+        <tr><th>Milestone</th><th>Что доказывает</th><th>Состав</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>v0</strong> <span class="chip done">done</span></td>
+          <td>Архитектура работоспособна. Локальный LLM умеет ReAct.</td>
+          <td>14 задач вертикального среза. 124 теста. E2E с реальной моделью.</td>
+        </tr>
+        <tr>
+          <td><strong>v0.1</strong> <span class="chip next">next</span></td>
+          <td>Все 3 модели в работе. Verify умеет judge. Критик и retry работают.</td>
+          <td>Multi-tier LLM + judge predicate + критик + standing-цели + trace explorer.</td>
+        </tr>
+        <tr>
+          <td><strong>v0.2</strong> <span class="chip research">research</span></td>
+          <td>Reflect замыкает контур самоулучшения. World model жива.</td>
+          <td>Reflect (failure_analysis) + Graphiti+Neo4j real + MemoryAgentBench adapter.</td>
+        </tr>
+        <tr>
+          <td><strong>v1.0</strong> <span class="chip research">research</span></td>
+          <td>Конъюнкция трёх свойств измеряема на held-out.</td>
+          <td>Self-generated goals + held-out eval set + reliability-first метрики.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3 style="margin-top:32px;">Ось измерения</h3>
+    <p>
+      На каждом milestone — прогон полного eval-сета. Метрики: success-rate на
+      held-out, среднее число human-interventions на единицу работы, длина горизонта
+      без коррекции, failure-mode breakdown.
+    </p>
+    <p>
+      Это даёт численный ответ на «ширина распределения × длина горизонта»
+      в духе твоей рамки.
+    </p>
+  </div>
+</section>
+
+<!-- ================== 10. REPO ================== -->
+<section class="slide">
+  <div class="content">
+    <h2 class="slide-title">Запуск</h2>
+
+    <h3>Репозиторий</h3>
+    <p>
+      <a href="https://github.com/PavelNikolaeW/harnes" style="color: var(--accent); text-decoration: none; font-family: 'SF Mono', monospace; font-size: 16px;">
+        github.com/PavelNikolaeW/harnes
+      </a>
+    </p>
+
+    <h3>Локально (dev)</h3>
+    <pre><code>uv sync
+uv run pytest tests/                        # 124 теста, без LLM (~3s)
+uv run pytest tests/test_e2e_smoke.py -s   # с реальным LLM (~25s)
+
+# Operator CLI
+uv run python -m harnes.operator enter-goal "write 'hi' to /tmp/x.txt" \
+    --predicate structural
+uv run python -m harnes.operator list-goals
+uv run python -m harnes.operator run-tick --real    # запуск с настоящим ReAct
+uv run python -m harnes.operator inspect &lt;uuid&gt;    # JSON по цели</code></pre>
+
+    <h3>В контейнере</h3>
+    <pre><code>docker compose up -d qdrant neo4j   # бэкенды памяти
+docker compose build agent
+docker compose run --rm agent       # один проход</code></pre>
+
+    <h3>Документация</h3>
+    <ul>
+      <li><code>agent_architecture.html</code> — полная архитектура (19 разделов, 63 решения)</li>
+      <li><code>README.md</code> — quick-start</li>
+      <li><code>config/default.yaml</code> — runtime-конфиг</li>
+      <li><code>v0_presentation.html</code> — этот документ</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================== 11. CLOSING ================== -->
+<section class="slide title" style="background: linear-gradient(180deg, #f3f1ec 0%, #fdfdfb 100%);">
+  <div class="content">
+    <h1 style="font-size: 48px;">Архитектура работает на локальной модели.</h1>
+    <div class="subtitle">
+      Инфраструктура измеряема. Research-вопросы — теперь testable.<br>
+      <span style="color: var(--accent); font-weight: 600;">Дальше — самоулучшение, world model, held-out evaluation.</span>
+    </div>
+    <div class="meta">
+      14/14 v0 &middot; 124 tests &middot; ~7770 LoC<br>
+      <a href="https://github.com/PavelNikolaeW/harnes" style="color: var(--accent-soft); text-decoration: none;">
+        github.com/PavelNikolaeW/harnes
+      </a>
+    </div>
+  </div>
+</section>
+
+<script>
+  // Progress dots
+  const slides = document.querySelectorAll('section.slide');
+  const progressEl = document.getElementById('progress');
+  slides.forEach((s, i) => {
+    const dot = document.createElement('div');
+    dot.className = 'dot';
+    if (i === 0) dot.classList.add('active');
+    progressEl.appendChild(dot);
+  });
+
+  // Update active dot on scroll
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        const idx = Array.from(slides).indexOf(entry.target);
+        document.querySelectorAll('.progress .dot').forEach((d, i) => {
+          d.classList.toggle('active', i === idx);
+        });
+      }
+    });
+  }, { threshold: 0.5 });
+  slides.forEach((s) => observer.observe(s));
+
+  // Keyboard navigation
+  function currentSlide() {
+    const y = window.scrollY + window.innerHeight / 2;
+    for (let i = 0; i < slides.length; i++) {
+      const r = slides[i].getBoundingClientRect();
+      const top = r.top + window.scrollY;
+      if (y >= top && y < top + slides[i].offsetHeight) return i;
+    }
+    return 0;
+  }
+
+  document.addEventListener('keydown', (e) => {
+    const idx = currentSlide();
+    if (e.key === 'ArrowDown' || e.key === ' ' || e.key === 'PageDown') {
+      e.preventDefault();
+      const next = slides[Math.min(idx + 1, slides.length - 1)];
+      if (next) next.scrollIntoView({ behavior: 'smooth' });
+    } else if (e.key === 'ArrowUp' || e.key === 'PageUp') {
+      e.preventDefault();
+      const prev = slides[Math.max(idx - 1, 0)];
+      if (prev) prev.scrollIntoView({ behavior: 'smooth' });
+    } else if (e.key === 'Home') {
+      slides[0].scrollIntoView({ behavior: 'smooth' });
+    } else if (e.key === 'End') {
+      slides[slides.length - 1].scrollIntoView({ behavior: 'smooth' });
+    }
+  });
+</script>
+
+</body>
+</html>
