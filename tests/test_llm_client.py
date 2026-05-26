@@ -25,6 +25,64 @@ def test_model_id_adds_openai_prefix() -> None:
     assert client._model_id().startswith("openai/")
 
 
+# ---------- Tier dispatch (v0.1) ----------
+
+
+def test_resolve_model_default() -> None:
+    """Без tier → settings.llm.model (legacy)."""
+    settings = client.get_settings()
+    assert client._resolve_model(None) == settings.llm.model
+
+
+def test_resolve_model_known_tier() -> None:
+    """tier='light' → settings.llm.tiers['light']."""
+    settings = client.get_settings()
+    assert client._resolve_model("light") == settings.llm.tiers["light"]
+
+
+def test_resolve_model_unknown_tier_falls_back() -> None:
+    """Неизвестный tier → fallback на model, без исключения."""
+    settings = client.get_settings()
+    assert client._resolve_model("nonsense") == settings.llm.model
+
+
+def test_call_forwards_tier_to_completion(monkeypatch: pytest.MonkeyPatch) -> None:
+    """tier-параметр должен влиять на model в payload."""
+    settings = client.get_settings()
+    # Подменим один тир, чтобы отличить от дефолтного model
+    settings.llm.tiers["heavy"] = "alt-model-id"
+
+    captured: dict[str, Any] = {}
+
+    def fake_completion(**kwargs: Any) -> MagicMock:
+        captured.update(kwargs)
+        return _fake_response()
+
+    monkeypatch.setattr(client, "completion", fake_completion)
+
+    client.call([{"role": "user", "content": "x"}], tier="heavy")
+
+    assert captured["model"] == "openai/alt-model-id"
+
+
+def test_call_without_tier_uses_default_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """tier=None → settings.llm.model (а не tiers[default_tier])."""
+    captured: dict[str, Any] = {}
+
+    def fake_completion(**kwargs: Any) -> MagicMock:
+        captured.update(kwargs)
+        return _fake_response()
+
+    monkeypatch.setattr(client, "completion", fake_completion)
+
+    settings = client.get_settings()
+    client.call([{"role": "user", "content": "x"}])
+
+    assert captured["model"] == f"openai/{settings.llm.model}"
+
+
 def test_call_forwards_to_completion(monkeypatch: pytest.MonkeyPatch) -> None:
     """call() должен передавать настройки и сообщения в litellm.completion."""
     captured: dict[str, Any] = {}

@@ -4,9 +4,17 @@
 llm:
   api_base: "http://192.168.0.111:8000/v1"
   api_key: "dummy"
+  # Дефолтная модель (когда tier не указан явно).
   model: "gemma-26b-a4b"
   timeout: 60
   max_retries: 3
+  # Tier → model_id. В dev все на gemma-26b-a4b (быстро итерируется).
+  # В проде заменить main на gemma-31b-mtp, heavy на qwen-35b.
+  tiers:
+    light: "gemma-26b-a4b"
+    main:  "gemma-26b-a4b"
+    heavy: "gemma-26b-a4b"
+  default_tier: "main"
 
 memory:
   lancedb_path: "/app/data/lancedb"

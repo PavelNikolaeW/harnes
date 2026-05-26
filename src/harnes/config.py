@@ -14,16 +14,33 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
+
+
+def _default_tiers() -> dict[str, str]:
+    """В dev все тиры мапятся на gemma-26b-a4b (быстрая, MoE 4B active).
+
+    В проде поднимем gemma-31b-mtp для main, qwen-35b для heavy.
+    """
+    return {
+        "light": "gemma-26b-a4b",
+        "main": "gemma-26b-a4b",
+        "heavy": "gemma-26b-a4b",
+    }
 
 
 class LLMConfig(BaseModel):
     api_base: str = "http://192.168.0.111:8000/v1"
     api_key: str = "dummy"
+    # Дефолтная модель — используется если tier не указан явно (backward-compat).
     model: str = "gemma-26b-a4b"
     timeout: int = 60
     max_retries: int = 3
+    # Tier-абстракция. light для attend/critic/verify, main для thought/action,
+    # heavy для reflect. В dev все три на одной модели.
+    tiers: dict[str, str] = Field(default_factory=_default_tiers)
+    default_tier: str = "main"
 
 
 class MemoryConfig(BaseModel):

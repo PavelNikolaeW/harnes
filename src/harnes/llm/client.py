@@ -1,12 +1,17 @@
 """LiteLLM-based chat completions client.
 
-В v0 — единственная модель `gemma-26b-a4b` через ll-router на
-http://192.168.0.111:8000/v1.
+Tier-абстракция:
+- light  — для attend / critic / verify (быстрый, маленький промпт)
+- main   — для thought_call / action_call / plan_call в ReAct
+- heavy  — для reflect (большой контекст, дорогая консолидация)
+
+В dev все тиры мапятся на `gemma-26b-a4b` (см. LLMConfig.tiers). В проде —
+gemma-31b-mtp на main, qwen-35b на heavy.
 
 Public API:
-- call(messages, **kwargs) -> response from LiteLLM
-- async_call(messages, **kwargs) -> awaitable
-- health_check() -> bool (тонкий smoke-тест endpoint'а)
+- call(messages, *, tier=None, ...) -> response
+- async_call(messages, *, tier=None, ...) -> awaitable
+- health_check() -> bool
 
 См. `agent_architecture.html` § 17.
 """
@@ -22,19 +27,38 @@ from harnes.config import get_settings
 log = structlog.get_logger()
 
 
-def _model_id() -> str:
-    """LiteLLM использует префикс `openai/` для OpenAI-совместимых endpoint'ов."""
+def _resolve_model(tier: str | None) -> str:
+    """Разрешает tier-имя в id модели.
+
+    - tier=None → settings.llm.model (legacy / default)
+    - tier='light'|'main'|'heavy' → settings.llm.tiers[tier]
+    - неизвестный tier → settings.llm.model + warning
+    """
     settings = get_settings()
-    model = settings.llm.model
+    if tier is None:
+        return settings.llm.model
+    if tier in settings.llm.tiers:
+        return settings.llm.tiers[tier]
+    log.warning(
+        "llm.tier.unknown_fallback_to_default",
+        requested_tier=tier,
+        known_tiers=list(settings.llm.tiers.keys()),
+    )
+    return settings.llm.model
+
+
+def _model_id(tier: str | None = None) -> str:
+    """LiteLLM требует префикс `openai/` для OpenAI-совместимых endpoint'ов."""
+    model = _resolve_model(tier)
     if not model.startswith("openai/"):
         model = f"openai/{model}"
     return model
 
 
-def _common_kwargs() -> dict[str, Any]:
+def _common_kwargs(tier: str | None = None) -> dict[str, Any]:
     settings = get_settings()
     return {
-        "model": _model_id(),
+        "model": _model_id(tier),
         "api_base": settings.llm.api_base,
         "api_key": settings.llm.api_key,
         "timeout": settings.llm.timeout,
@@ -45,15 +69,21 @@ def _common_kwargs() -> dict[str, Any]:
 def call(
     messages: list[dict[str, Any]],
     *,
+    tier: str | None = None,
     temperature: float = 0.0,
     max_tokens: int | None = None,
     **kwargs: Any,
 ) -> Any:
-    """Synchronous chat completion."""
-    settings = get_settings()
+    """Synchronous chat completion.
+
+    `tier` опционально маршрутизирует на конкретную модель по конфигу.
+    None — модель по умолчанию (settings.llm.model).
+    """
+    model_id = _resolve_model(tier)
     log.debug(
         "llm.call.start",
-        model=settings.llm.model,
+        model=model_id,
+        tier=tier,
         message_count=len(messages),
         temperature=temperature,
     )
@@ -61,13 +91,14 @@ def call(
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,
-        **_common_kwargs(),
+        **_common_kwargs(tier),
         **kwargs,
     )
     usage = getattr(response, "usage", None)
     log.debug(
         "llm.call.done",
-        model=settings.llm.model,
+        model=model_id,
+        tier=tier,
         prompt_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
         completion_tokens=getattr(usage, "completion_tokens", None) if usage else None,
     )
@@ -77,6 +108,7 @@ def call(
 async def async_call(
     messages: list[dict[str, Any]],
     *,
+    tier: str | None = None,
     temperature: float = 0.0,
     max_tokens: int | None = None,
     **kwargs: Any,
@@ -86,13 +118,13 @@ async def async_call(
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,
-        **_common_kwargs(),
+        **_common_kwargs(tier),
         **kwargs,
     )
 
 
 def health_check() -> bool:
-    """Smoke-тест endpoint'а: послать один маленький запрос, убедиться, что ответ валидный.
+    """Smoke-тест endpoint'а — короткий запрос на дефолтную модель.
 
     Логирует ошибку и возвращает False вместо бросания исключения —
     используется при boot'е агента (см. scripts/run_agent.py).
