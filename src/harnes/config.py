@@ -75,6 +75,12 @@ class TickConfig(BaseModel):
     budget_default_tokens: int = 50_000
 
 
+class EvalConfig(BaseModel):
+    """Eval-results persistence (см. v0.3 #25)."""
+
+    history_db_path: Path = Path("/app/data/eval_history.db")
+
+
 class Settings(BaseSettings):
     """Root settings object.
 
@@ -98,6 +104,7 @@ class Settings(BaseSettings):
     embeddings: EmbeddingsConfig = EmbeddingsConfig()
     logging: LoggingConfig = LoggingConfig()
     tick: TickConfig = TickConfig()
+    eval: EvalConfig = EvalConfig()
 
     @classmethod
     def settings_customise_sources(

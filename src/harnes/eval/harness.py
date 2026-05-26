@@ -100,6 +100,9 @@ def run_evaluation(
     adapter: BenchmarkAdapter,
     agent_run: Callable[[Goal], Trajectory],
     limit: int | None = None,
+    history_repo: Any = None,
+    skill_registry: Any = None,
+    notes: str = "",
 ) -> EvalResult:
     """Главный entry-point harness'а.
 
@@ -107,7 +110,15 @@ def run_evaluation(
     - adapter: BenchmarkAdapter — поставщик задач + верификатор
     - agent_run: callable(goal) → Trajectory — наш агент в режиме «выполнить goal»
     - limit: ограничение числа задач (None = all)
+    - history_repo: опционально — EvalHistoryStore; если передан, прогон
+      сохраняется в SQLite с git_sha и skill_versions snapshot
+    - skill_registry: опционально — для snapshot'а skill-версий в history
+    - notes: свободный текст для записи в history (например, «baseline после #26»)
     """
+    from datetime import UTC, datetime
+
+    started_at = datetime.now(UTC)
+
     result = EvalResult(name=adapter.name)
     for i, (task_id, goal) in enumerate(adapter.tasks()):
         if limit is not None and i >= limit:
@@ -143,10 +154,29 @@ def run_evaluation(
             success=success,
             failure_mode=failure_mode,
         )
+
+    ended_at = datetime.now(UTC)
+
     log.info(
         "eval.run.done",
         adapter=adapter.name,
         tasks=len(result.per_task),
         success_rate=result.success_rate,
     )
+
+    # Persist в history если запрошено.
+    if history_repo is not None:
+        from harnes.eval.history import capture_skill_versions
+
+        skill_versions: dict[str, str] = {}
+        if skill_registry is not None:
+            skill_versions = capture_skill_versions(skill_registry)
+        history_repo.record(
+            result=result,
+            started_at=started_at,
+            ended_at=ended_at,
+            skill_versions=skill_versions,
+            notes=notes,
+        )
+
     return result

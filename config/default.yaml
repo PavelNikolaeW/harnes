@@ -42,3 +42,6 @@ logging:
 tick:
   min_interval_seconds: 1.0
   budget_default_tokens: 50000
+
+eval:
+  history_db_path: "/app/data/eval_history.db"

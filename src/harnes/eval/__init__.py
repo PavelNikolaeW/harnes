@@ -13,10 +13,13 @@ from harnes.eval.harness import (
     PerTaskResult,
     run_evaluation,
 )
+from harnes.eval.history import EvalHistoryStore, EvalRunRecord
 
 __all__ = [
     "BenchmarkAdapter",
+    "EvalHistoryStore",
     "EvalResult",
+    "EvalRunRecord",
     "MemoryAgentBenchAdapter",
     "PerTaskResult",
     "run_evaluation",

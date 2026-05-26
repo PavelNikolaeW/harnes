@@ -608,9 +608,31 @@ def run_loop(interval: float, stub: bool, max_ticks: int | None, world: bool) ->
     default=False,
     help="--stub использовать заглушку ReAct (быстро, без LLM); --real реальный агент",
 )
-def run_eval(adapter_name: str, tasks_file: Path, limit: int | None, stub: bool) -> None:
-    """Прогон benchmark adapter'а через нашего агента. Печатает EvalResult."""
-    from harnes.eval import MemoryAgentBenchAdapter, run_evaluation
+@click.option(
+    "--no-history",
+    is_flag=True,
+    default=False,
+    help="Не записывать прогон в eval_history.db (по дефолту записывается).",
+)
+@click.option(
+    "--notes",
+    default="",
+    help="Произвольный текст в eval_runs.notes (например, 'baseline before #26').",
+)
+def run_eval(
+    adapter_name: str,
+    tasks_file: Path,
+    limit: int | None,
+    stub: bool,
+    no_history: bool,
+    notes: str,
+) -> None:
+    """Прогон benchmark adapter'а через нашего агента. Печатает EvalResult.
+
+    По умолчанию пишет результат в eval-history (settings.eval.history_db_path).
+    --no-history отключает запись (для smoke).
+    """
+    from harnes.eval import EvalHistoryStore, MemoryAgentBenchAdapter, run_evaluation
     from harnes.memory.episodic import EpisodicStore
     from harnes.memory.router import MemoryRouter
     from harnes.react.loop import run_react
@@ -628,6 +650,7 @@ def run_eval(adapter_name: str, tasks_file: Path, limit: int | None, stub: bool)
     episodic = EpisodicStore(settings.memory.lancedb_path)
     router = MemoryRouter(episodic=episodic)
 
+    skill_registry: SkillRegistry | None = None
     if stub:
         from harnes.metacycle.tick import stub_react_fn
 
@@ -653,11 +676,23 @@ def run_eval(adapter_name: str, tasks_file: Path, limit: int | None, stub: bool)
                 budget_tokens=30_000,
             )
 
+    history_repo: EvalHistoryStore | None = None
+    if not no_history:
+        history_repo = EvalHistoryStore(settings.eval.history_db_path)
+
     click.echo(
         f"Running {adapter.name} (limit={limit or 'all'}, "
-        f"agent={'stub' if stub else 'real LLM'})..."
+        f"agent={'stub' if stub else 'real LLM'}, "
+        f"history={'on' if history_repo else 'off'})..."
     )
-    result = run_evaluation(adapter, agent_run, limit=limit)
+    result = run_evaluation(
+        adapter,
+        agent_run,
+        limit=limit,
+        history_repo=history_repo,
+        skill_registry=skill_registry,
+        notes=notes,
+    )
 
     click.echo(f"\n=== Result: {result.name} ===")
     click.echo(f"  tasks       : {len(result.per_task)}")
@@ -675,6 +710,135 @@ def run_eval(adapter_name: str, tasks_file: Path, limit: int | None, stub: bool)
         click.echo(
             f"  {marker} {r.task_id} (steps={r.steps}, tokens={r.cost_tokens})"
             + (f" — {r.failure_mode}" if r.failure_mode else "")
+        )
+
+    if history_repo is not None:
+        latest = history_repo.latest(adapter_name=result.name)
+        if latest is not None:
+            click.echo(f"\nRecorded as run #{latest.id} in eval-history.")
+
+
+# ---------- eval-history / eval-compare ----------
+
+
+@cli.command("eval-history")
+@click.option("--adapter", default=None, help="Фильтр по adapter_name")
+@click.option("--limit", type=int, default=20, show_default=True)
+def eval_history_cmd(adapter: str | None, limit: int) -> None:
+    """Список последних прогонов benchmark'а с метриками."""
+    from harnes.eval import EvalHistoryStore
+
+    settings = get_settings()
+    store = EvalHistoryStore(settings.eval.history_db_path)
+    runs = store.list_runs(adapter_name=adapter, limit=limit)
+
+    if not runs:
+        click.echo("(no runs)")
+        return
+
+    click.echo(
+        f"{'id':>4}  {'adapter':<22}  {'tasks':>5}  {'success':>7}  "
+        f"{'steps':>5}  {'tokens':>6}  {'git':>8}  started_at"
+    )
+    click.echo("-" * 100)
+    for r in runs:
+        click.echo(
+            f"{r.id:>4}  {r.adapter_name:<22}  {r.total_tasks:>5}  "
+            f"{r.success_rate:>6.1%}  {r.avg_steps:>5.1f}  "
+            f"{int(r.avg_cost_tokens):>6}  {(r.git_sha or '?')[:8]:>8}  "
+            f"{r.started_at.strftime('%Y-%m-%d %H:%M')}"
+        )
+
+
+@cli.command("eval-compare")
+@click.argument("baseline_id", type=int)
+@click.argument("candidate_id", type=int, required=False)
+def eval_compare_cmd(baseline_id: int, candidate_id: int | None) -> None:
+    """Сравнить два прогона. Если candidate_id не указан — берётся latest того же adapter'а."""
+    from harnes.eval import EvalHistoryStore
+
+    settings = get_settings()
+    store = EvalHistoryStore(settings.eval.history_db_path)
+
+    baseline = store.get(baseline_id)
+    if baseline is None:
+        click.echo(f"Run #{baseline_id} not found", err=True)
+        sys.exit(1)
+
+    if candidate_id is None:
+        latest = store.latest(adapter_name=baseline.adapter_name)
+        if latest is None or latest.id == baseline.id:
+            click.echo("No newer candidate run found for this adapter", err=True)
+            sys.exit(1)
+        candidate = latest
+    else:
+        candidate = store.get(candidate_id)
+        if candidate is None:
+            click.echo(f"Run #{candidate_id} not found", err=True)
+            sys.exit(1)
+
+    click.echo(
+        f"Comparing run #{baseline.id} (baseline) → #{candidate.id} (candidate)"
+    )
+    click.echo(f"  adapter      : {baseline.adapter_name}")
+    click.echo()
+
+    def _diff(label: str, base: float, cand: float, fmt: str = "{:.1%}") -> str:
+        delta = cand - base
+        arrow = "↑" if delta > 0 else ("↓" if delta < 0 else "=")
+        return (
+            f"  {label:<14}: {fmt.format(base):>8}  →  {fmt.format(cand):>8}  "
+            f"{arrow}{fmt.format(abs(delta))}"
+        )
+
+    click.echo(_diff("success_rate", baseline.success_rate, candidate.success_rate))
+    click.echo(
+        _diff(
+            "avg_steps",
+            baseline.avg_steps,
+            candidate.avg_steps,
+            "{:.2f}",
+        )
+    )
+    click.echo(
+        _diff(
+            "avg_tokens",
+            baseline.avg_cost_tokens,
+            candidate.avg_cost_tokens,
+            "{:.0f}",
+        )
+    )
+
+    base_modes = json.loads(baseline.failure_modes_json)
+    cand_modes = json.loads(candidate.failure_modes_json)
+    all_modes = set(base_modes) | set(cand_modes)
+    if all_modes:
+        click.echo("\n  failure_modes:")
+        for m in sorted(all_modes):
+            b = base_modes.get(m, 0)
+            c = cand_modes.get(m, 0)
+            arrow = "↑" if c > b else ("↓" if c < b else "=")
+            click.echo(f"    {m:<24}: {b:>3}  →  {c:>3}  {arrow}{abs(c - b)}")
+
+    base_skills = json.loads(baseline.skill_versions_json)
+    cand_skills = json.loads(candidate.skill_versions_json)
+    skill_changes = [
+        (k, base_skills.get(k, "—"), cand_skills.get(k, "—"))
+        for k in set(base_skills) | set(cand_skills)
+        if base_skills.get(k) != cand_skills.get(k)
+    ]
+    if skill_changes:
+        click.echo("\n  skill_versions changed:")
+        for k, b, c in skill_changes:
+            click.echo(f"    {k:<20}: {b} → {c}")
+
+    if baseline.git_sha != candidate.git_sha:
+        click.echo(
+            f"\n  git: {(baseline.git_sha or '?')[:8]} → {(candidate.git_sha or '?')[:8]}"
+        )
+    if baseline.config_hash != candidate.config_hash:
+        click.echo(
+            f"  config_hash: {baseline.config_hash} → {candidate.config_hash} (config changed)"
         )
 
 
