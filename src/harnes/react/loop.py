@@ -130,7 +130,9 @@ def _thought_call(
         }
     )
 
-    response = llm_call(messages, max_tokens=500)
+    # max_tokens=2000: native thinking может потратить 500-1500 на reasoning_content,
+    # остальное — на content. См. llm/client.py:_thinking_extra_body.
+    response = llm_call(messages, max_tokens=2000)
     text = response.choices[0].message.content or ""
     tokens = getattr(response.usage, "completion_tokens", 0) or 0
 
@@ -160,7 +162,9 @@ def _action_call(
         }
     )
 
-    response = llm_call(messages, max_tokens=300)
+    # max_tokens=1500: thinking reasoning_content + JSON ответ в content.
+    # Empirical: content остаётся чистым JSON, _parse_action_json regex не цепляет шум.
+    response = llm_call(messages, max_tokens=1500)
     text = response.choices[0].message.content or ""
     tokens = getattr(response.usage, "completion_tokens", 0) or 0
 

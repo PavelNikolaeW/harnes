@@ -117,7 +117,8 @@ Evaluate strictly. Reply with JSON only:
     ]
 
     try:
-        response = llm_call(messages, tier="light", max_tokens=300)
+        # max_tokens=1500 для thinking + JSON verdict. См. llm/client.py.
+        response = llm_call(messages, tier="light", max_tokens=1500)
         text = response.choices[0].message.content or ""
         tokens = getattr(response.usage, "completion_tokens", 0) or 0
     except Exception as exc:  # noqa: BLE001

@@ -66,18 +66,39 @@ def _common_kwargs(tier: str | None = None) -> dict[str, Any]:
     }
 
 
+def _thinking_extra_body(enable_thinking: bool) -> dict[str, Any]:
+    """Возвращает extra_body для LiteLLM с включённым/выключенным native thinking.
+
+    ll-router принимает chat_template_kwargs через extra_body. По умолчанию
+    backend имеет enable_thinking=false (см. /v1/models request_overrides),
+    мы переопределяем здесь.
+
+    Empirical test: gemma-26b-a4b и qwen-35b возвращают `reasoning_content`
+    как отдельное поле в `message`, а `content` остаётся чистым (JSON для
+    action_call, plain text для thought_call). Это значит наш regex-парсинг
+    JSON не ловит мусор из reasoning.
+    """
+    return {"chat_template_kwargs": {"enable_thinking": enable_thinking}}
+
+
 def call(
     messages: list[dict[str, Any]],
     *,
     tier: str | None = None,
     temperature: float = 0.0,
     max_tokens: int | None = None,
+    enable_thinking: bool = True,
     **kwargs: Any,
 ) -> Any:
     """Synchronous chat completion.
 
     `tier` опционально маршрутизирует на конкретную модель по конфигу.
     None — модель по умолчанию (settings.llm.model).
+
+    `enable_thinking` (default True) — включает native CoT через chat-template
+    kwarg. Модель вернёт `reasoning_content` отдельным полем, `content` чистым.
+    Caller сам решает использовать reasoning_content (для логов) или нет.
+    Латентность ↑ ×2-3, качество reasoning ↑ заметно.
     """
     model_id = _resolve_model(tier)
     log.debug(
@@ -86,11 +107,17 @@ def call(
         tier=tier,
         message_count=len(messages),
         temperature=temperature,
+        enable_thinking=enable_thinking,
     )
+    # Merge extra_body: caller может передать свой extra_body через kwargs.
+    extra_body = dict(kwargs.pop("extra_body", None) or {})
+    extra_body.update(_thinking_extra_body(enable_thinking))
+
     response = completion(
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,
+        extra_body=extra_body,
         **_common_kwargs(tier),
         **kwargs,
     )
@@ -111,13 +138,17 @@ async def async_call(
     tier: str | None = None,
     temperature: float = 0.0,
     max_tokens: int | None = None,
+    enable_thinking: bool = True,
     **kwargs: Any,
 ) -> Any:
-    """Asynchronous chat completion."""
+    """Asynchronous chat completion. См. call() для enable_thinking."""
+    extra_body = dict(kwargs.pop("extra_body", None) or {})
+    extra_body.update(_thinking_extra_body(enable_thinking))
     return await acompletion(
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,
+        extra_body=extra_body,
         **_common_kwargs(tier),
         **kwargs,
     )

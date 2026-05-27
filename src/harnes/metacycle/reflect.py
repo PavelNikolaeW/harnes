@@ -152,7 +152,8 @@ Reply with JSON only:
 
     try:
         # main tier — у нас в dev gemma-26b-a4b, в проде gemma-31b-mtp
-        response = llm_call(messages, tier="main", max_tokens=2000)
+        # max_tokens=4000 для thinking + большое предложение prompt_template.
+        response = llm_call(messages, tier="main", max_tokens=4000)
         text = response.choices[0].message.content or ""
     except Exception as exc:  # noqa: BLE001
         log.warning(
@@ -274,7 +275,8 @@ Reply with JSON only:
     ]
 
     try:
-        response = llm_call(messages, tier="main", max_tokens=600)
+        # max_tokens=2000 для thinking + JSON-решение про inquiry.
+        response = llm_call(messages, tier="main", max_tokens=2000)
         text = response.choices[0].message.content or ""
     except Exception as exc:  # noqa: BLE001
         log.warning(

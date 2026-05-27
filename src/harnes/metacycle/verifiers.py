@@ -143,7 +143,8 @@ Reply with JSON only:
     ]
 
     try:
-        response = llm_call(messages, tier="light", max_tokens=300)
+        # max_tokens=1500 для thinking + JSON verdict.
+        response = llm_call(messages, tier="light", max_tokens=1500)
         text = response.choices[0].message.content or ""
     except Exception as exc:  # noqa: BLE001
         log.error(
@@ -378,7 +379,7 @@ Reply with strict JSON only:
                     {"role": "user", "content": user_prompt},
                 ],
                 tier="light",
-                max_tokens=200,
+                max_tokens=1500,  # thinking + JSON verdict
             )
             text = response.choices[0].message.content or ""
         except Exception as exc:  # noqa: BLE001
