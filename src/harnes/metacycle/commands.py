@@ -157,3 +157,29 @@ class CommandStore:
                 .where(WebCommandRow.consumed_at.is_(None))  # type: ignore[union-attr]
             )
             return int(s.exec(q).one())
+
+    def latest_pause_state(self, only_consumed: bool = True) -> bool:
+        """Текущее состояние loop по последней pause/resume команде.
+
+        True = paused, False = running (или нет ни одной pause-команды никогда).
+        only_consumed=True: учитываем только консьюменные (фактически
+        применённые agent run-loop). Это даёт survivable-state: после рестарта
+        контейнера run-loop вернётся в pause если оператор раньше его поставил.
+        """
+        with self._session() as s:
+            q = (
+                select(WebCommandRow)
+                .where(
+                    WebCommandRow.command.in_(
+                        [CommandType.PAUSE.value, CommandType.RESUME.value]
+                    )
+                )
+                .order_by(WebCommandRow.id.desc())
+                .limit(1)
+            )
+            if only_consumed:
+                q = q.where(WebCommandRow.consumed_at.is_not(None))  # type: ignore[union-attr]
+            rows = list(s.exec(q).all())
+            if not rows:
+                return False
+            return rows[0].command == CommandType.PAUSE.value

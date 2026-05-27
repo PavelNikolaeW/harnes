@@ -26,10 +26,12 @@ from harnes.webui.routers import (
     api_journal,
     api_llm,
     api_memory,
+    api_memory_volumes,
     api_reflect,
     api_replay,
     api_self_gen,
     api_skills,
+    api_standing,
     api_trajectories,
     pages,
 )
@@ -100,6 +102,8 @@ def create_app() -> FastAPI:
     app.include_router(api_cost.router, prefix="/cost", tags=["cost"])
     app.include_router(api_self_gen.router, prefix="/self-gen", tags=["self-gen"])
     app.include_router(api_reflect.router, prefix="/reflect", tags=["reflect"])
+    app.include_router(api_standing.router, prefix="/standing", tags=["standing"])
+    app.include_router(api_memory_volumes.router, prefix="/memory/volumes", tags=["memory"])
 
     return app
 

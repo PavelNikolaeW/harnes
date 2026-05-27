@@ -85,7 +85,9 @@ select = ["E", "F", "I", "B", "UP", "N", "RUF"]
 "src/harnes/webui/**/*.py" = ["B008", "B904", "S104", "RUF001", "RUF002", "RUF003"]
 # UP042 (str, Enum) → StrEnum: проект единообразно использует (str, Enum)
 # в goals/schema, react/schema и др. Менять только commands — inconsistency.
-"src/harnes/metacycle/commands.py" = ["UP042", "RUF002", "RUF003"]
+"src/harnes/metacycle/commands.py" = ["UP042", "RUF001", "RUF002", "RUF003"]
+# operator/cli.py — большие click-блоки с русскоязычными help-строками.
+"src/harnes/operator/cli.py" = ["RUF001", "RUF002", "RUF003", "E501"]
 
 [tool.mypy]
 python_version = "3.12"

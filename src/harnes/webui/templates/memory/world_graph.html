@@ -27,21 +27,73 @@
 {% if not world_available %}
   {{ m.empty_state('Neo4j/Graphiti недоступен — webui не смог подключиться. См. health-страницу.') }}
 {% else %}
-  <div class="flex flex-wrap gap-3 items-end mb-4 p-3 bg-paper border border-edge rounded">
-    <label class="text-sm">
-      <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">limit (each side)</span>
-      <input id="limit-input" type="number" value="200" min="10" max="1000" step="10"
-             class="border border-edge rounded px-2 py-1 bg-cream font-mono text-sm w-28">
-    </label>
-    <button id="reload-btn" type="button"
-            class="bg-accent text-cream px-3 py-1.5 rounded font-mono text-sm hover:opacity-90">
-      reload graph
-    </button>
-    <button id="fit-btn" type="button"
-            class="bg-ink text-cream px-3 py-1.5 rounded font-mono text-sm hover:opacity-90">
-      fit
-    </button>
-    <span class="text-xs text-soft font-mono">click узел → properties справа</span>
+  <div class="border border-edge rounded p-3 bg-paper mb-4" x-data="{ tab: 'filter' }">
+    <div class="flex gap-3 mb-3 text-xs font-mono">
+      <button type="button" @click="tab = 'filter'"
+              :class="tab === 'filter' ? 'text-accent font-semibold border-b-2 border-accent' : 'text-soft hover:text-ink'"
+              class="pb-1">filters</button>
+      <button type="button" @click="tab = 'cypher'"
+              :class="tab === 'cypher' ? 'text-accent font-semibold border-b-2 border-accent' : 'text-soft hover:text-ink'"
+              class="pb-1">advanced (read-only Cypher)</button>
+    </div>
+
+    <div x-show="tab === 'filter'" class="flex flex-wrap gap-3 items-end">
+      <label class="text-sm">
+        <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">limit (each side)</span>
+        <input id="limit-input" type="number" value="200" min="10" max="1000" step="10"
+               class="border border-edge rounded px-2 py-1 bg-cream font-mono text-sm w-28">
+      </label>
+      <label class="text-sm">
+        <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">min degree</span>
+        <input id="min-degree-input" type="number" value="0" min="0" max="100"
+               class="border border-edge rounded px-2 py-1 bg-cream font-mono text-sm w-24">
+      </label>
+      <div class="text-sm flex-1 min-w-[20em]">
+        <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">labels filter</span>
+        <div class="flex flex-wrap gap-1 mt-1" id="labels-box">
+          {% if available_labels %}
+            {% for lbl in available_labels %}
+              <label class="inline-flex items-center gap-1 px-2 py-0.5 border border-edge rounded text-xs font-mono cursor-pointer bg-cream hover:bg-paper">
+                <input type="checkbox" value="{{ lbl }}" class="label-cb">
+                {{ lbl }}
+              </label>
+            {% endfor %}
+          {% else %}
+            <span class="text-xs text-soft">— no labels indexed —</span>
+          {% endif %}
+        </div>
+      </div>
+      <button id="reload-btn" type="button"
+              class="bg-accent text-cream px-3 py-1.5 rounded font-mono text-sm hover:opacity-90">
+        reload graph
+      </button>
+      <button id="fit-btn" type="button"
+              class="bg-ink text-cream px-3 py-1.5 rounded font-mono text-sm hover:opacity-90">
+        fit
+      </button>
+    </div>
+
+    <div x-show="tab === 'cypher'" x-cloak class="space-y-2">
+      <label class="text-sm block">
+        <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">
+          read-only Cypher snippet (MATCH ... RETURN n, r, m)
+        </span>
+        <textarea id="cypher-input" rows="3"
+                  class="w-full mt-1 border border-edge rounded px-2 py-1 bg-cream font-mono text-xs"
+                  placeholder="MATCH (n:Entity)-[r]->(m) WHERE n.name CONTAINS 'foo' RETURN n, r, m"></textarea>
+      </label>
+      <div class="flex gap-2 items-center">
+        <button id="cypher-run-btn" type="button"
+                class="bg-accent text-cream px-3 py-1.5 rounded font-mono text-sm hover:opacity-90">
+          run cypher
+        </button>
+        <span class="text-xs text-soft font-mono">
+          guardrail: CREATE/DELETE/SET/MERGE/REMOVE/DROP заблокированы
+        </span>
+      </div>
+    </div>
+
+    <div class="text-xs text-soft font-mono mt-2">click узел → properties справа</div>
   </div>
 
   <div class="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
@@ -84,11 +136,21 @@
     `;
   }
 
-  function load() {
+  function load(customCypher = null) {
     const lim = parseInt(limitInput.value || '200', 10);
+    const minDeg = parseInt(document.getElementById('min-degree-input').value || '0', 10);
+    const labels = Array.from(document.querySelectorAll('.label-cb:checked'))
+      .map(cb => cb.value).join(',');
     stats.textContent = 'loading…';
-    fetch(`/memory/world/cytoscape.json?limit=${lim}`)
-      .then(r => r.ok ? r.json() : Promise.reject(`http ${r.status}`))
+    const params = new URLSearchParams({ limit: String(lim) });
+    if (customCypher) {
+      params.set('cypher', customCypher);
+    } else {
+      if (labels) params.set('labels', labels);
+      if (minDeg > 0) params.set('min_degree', String(minDeg));
+    }
+    fetch(`/memory/world/cytoscape.json?${params.toString()}`)
+      .then(r => r.ok ? r.json() : r.text().then(t => Promise.reject(`http ${r.status}: ${t.slice(0, 200)}`)))
       .then(data => {
         stats.textContent = `${data.nodes.length} nodes · ${data.edges.length} edges`;
         if (cy) cy.destroy();
@@ -157,8 +219,12 @@
       });
   }
 
-  document.getElementById('reload-btn').addEventListener('click', load);
+  document.getElementById('reload-btn').addEventListener('click', () => load());
   document.getElementById('fit-btn').addEventListener('click', () => cy && cy.fit(undefined, 24));
+  document.getElementById('cypher-run-btn').addEventListener('click', () => {
+    const snippet = document.getElementById('cypher-input').value.trim();
+    if (snippet) load(snippet);
+  });
   load();
 })();
 </script>

@@ -47,35 +47,76 @@
 </form>
 
 {% if goals %}
-  <div class="border border-edge rounded overflow-hidden">
-    <table class="w-full text-sm">
-      <thead class="bg-paper text-soft">
-        <tr>
-          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">id</th>
-          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">class</th>
-          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">status</th>
-          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">prio</th>
-          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">origin</th>
-          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">description</th>
-          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">updated</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for g in goals %}
-          <tr class="border-t border-edge hover:bg-paper/60">
-            <td class="px-3 py-2 font-mono text-xs">
-              <a href="/goals/{{ g.id }}" class="text-link hover:underline">{{ g.id|short_uuid }}</a>
-            </td>
-            <td class="px-3 py-2">{{ m.badge(g.goal_class.value) }}</td>
-            <td class="px-3 py-2">{{ m.badge(g.status.value, g.status.value) }}</td>
-            <td class="px-3 py-2 font-mono text-right">{{ g.priority }}</td>
-            <td class="px-3 py-2 font-mono text-xs text-soft">{{ g.origin.value }}{% if g.originator %}<span class="text-soft">:{{ g.originator }}</span>{% endif %}</td>
-            <td class="px-3 py-2"><a href="/goals/{{ g.id }}" class="text-link hover:underline">{{ g.description }}</a></td>
-            <td class="px-3 py-2 font-mono text-xs text-soft">{{ g.updated_at|relative_time }}</td>
+  <div x-data="{ picked: [], action: 'approve' }">
+    {% if not read_only %}
+      <div class="flex items-center gap-3 mb-3 p-2 bg-paper/40 border border-edge rounded text-xs font-mono"
+           x-show="picked.length > 0" x-cloak>
+        <span class="text-soft">picked: <span x-text="picked.length"></span></span>
+        <button type="button" @click="picked = []" class="text-link hover:underline">clear</button>
+        <form method="post" action="/goals/bulk" class="ml-auto flex items-center gap-2">
+          <input type="hidden" name="ids" :value="picked.join(',')">
+          <input type="hidden" name="action" :value="action">
+          <input type="text" name="reason" placeholder="reason"
+                 class="border border-edge rounded px-2 py-1 bg-cream font-mono text-xs w-40">
+          <select x-model="action"
+                  class="border border-edge rounded px-2 py-1 bg-cream font-mono text-xs">
+            <option value="approve">approve</option>
+            <option value="reject">reject</option>
+            <option value="abandon">abandon</option>
+          </select>
+          <button type="submit"
+                  @click="if (!confirm(`Apply '${action}' to ${picked.length} goals?`)) $event.preventDefault()"
+                  class="bg-accent text-cream px-3 py-1 rounded">apply →</button>
+        </form>
+      </div>
+    {% endif %}
+
+    {% if request.query_params.get('bulk_applied') %}
+      <div class="border border-emerald-200 bg-emerald-50 text-emerald-900 rounded p-2 mb-3 text-sm font-mono">
+        ✓ bulk {{ request.query_params.get('bulk_action') }} applied to {{ request.query_params.get('bulk_applied') }} goals
+        {% if request.query_params.get('bulk_errors') %}
+          · {{ request.query_params.get('bulk_errors') }} errors
+        {% endif %}
+      </div>
+    {% endif %}
+
+    <div class="border border-edge rounded overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-paper text-soft">
+          <tr>
+            {% if not read_only %}<th class="px-2 py-2"></th>{% endif %}
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">id</th>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">class</th>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">status</th>
+            <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">prio</th>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">origin</th>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">description</th>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">updated</th>
           </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {% for g in goals %}
+            <tr class="border-t border-edge hover:bg-paper/60">
+              {% if not read_only %}
+                <td class="px-2 py-2">
+                  <input type="checkbox" value="{{ g.id }}"
+                         @change="if ($event.target.checked) picked.push($event.target.value); else picked = picked.filter(x => x !== $event.target.value)">
+                </td>
+              {% endif %}
+              <td class="px-3 py-2 font-mono text-xs">
+                <a href="/goals/{{ g.id }}" class="text-link hover:underline">{{ g.id|short_uuid }}</a>
+              </td>
+              <td class="px-3 py-2">{{ m.badge(g.goal_class.value) }}</td>
+              <td class="px-3 py-2">{{ m.badge(g.status.value, g.status.value) }}</td>
+              <td class="px-3 py-2 font-mono text-right">{{ g.priority }}</td>
+              <td class="px-3 py-2 font-mono text-xs text-soft">{{ g.origin.value }}{% if g.originator %}<span class="text-soft">:{{ g.originator }}</span>{% endif %}</td>
+              <td class="px-3 py-2"><a href="/goals/{{ g.id }}" class="text-link hover:underline">{{ g.description }}</a></td>
+              <td class="px-3 py-2 font-mono text-xs text-soft">{{ g.updated_at|relative_time }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
 {% else %}
   {{ m.empty_state('Нет целей под выбранным фильтром.') }}

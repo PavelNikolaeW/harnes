@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}standing policies{% endblock %}
+
+{% block content %}
+<div class="flex items-baseline justify-between mb-2">
+  <h1 class="text-2xl font-semibold">Standing policies</h1>
+  <span class="text-xs text-soft font-mono">
+    реактивный слой · all-time stats + last-7d timeline
+  </span>
+</div>
+<p class="text-soft text-sm mb-6">
+  Постоянно активные политики (<code class="bg-paper px-1 rounded">GoalClass.STANDING</code>),
+  которые на каждом тике проверяют условие и при срабатывании порождают дочерний task-goal.
+  Сами не выполняются. Источник статистики — <code class="bg-paper px-1 rounded">GOAL_SPAWNED</code>
+  events с <code class="bg-paper px-1 rounded">payload.originator == "standing:&lt;id&gt;"</code>.
+</p>
+
+{# ---------- Top stat cards ---------- #}
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+  {{ m.stat_card(
+      'Standing policies',
+      standing_count,
+      ('%d active' % standing_active_count) if standing_count else 'нет policies'
+  ) }}
+  {{ m.stat_card(
+      'Total fires',
+      total_fires_all_time,
+      'all-time, GOAL_SPAWNED'
+  ) }}
+  {{ m.stat_card(
+      'Fires last 24h',
+      fires_recent_24h,
+      'rate: %.2f/h' % (fires_recent_24h / 24.0)
+  ) }}
+  {% if mean_eff_pct is none %}
+    {{ m.stat_card('Mean effectiveness', '—', 'нет fired policies') }}
+  {% else %}
+    <div class="bg-decision border border-accentSoft border-l-4 border-l-accent rounded p-4">
+      <div class="text-[11px] uppercase tracking-wide text-soft">Mean effectiveness</div>
+      <div class="text-3xl font-mono font-semibold mt-1 text-accent">{{ '%.1f' % mean_eff_pct }}%</div>
+      <div class="text-xs text-soft mt-1">
+        avg(done_children / spawned), policies с ≥1 fire
+      </div>
+    </div>
+  {% endif %}
+</div>
+
+{% if truncated %}
+  <div class="border border-amber-300 bg-amber-50 text-amber-900 text-xs font-mono rounded px-3 py-2 mb-4">
+    Достигнут лимит выборки {{ max_fetch }} GOAL_SPAWNED событий — total fires может быть занижен.
+  </div>
+{% endif %}
+
+{# ---------- Per-policy table ---------- #}
+{% if not policy_rows %}
+  {{ m.empty_state('Нет standing-целей в репозитории. Запусти `harnes bootstrap-standing` чтобы создать стартовый набор (on_alert_observation, on_prev_verify_failure).') }}
+{% else %}
+  {{ m.section_title('Per-policy stats', policy_rows|length|string + ' standing-цел' + ('ь' if policy_rows|length == 1 else 'и')) }}
+  <div class="border border-edge rounded overflow-hidden mb-6">
+    <table class="w-full text-sm">
+      <thead class="bg-paper text-soft">
+        <tr>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">id</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">policy / description</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">status</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">prio</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">fires</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">last fire</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">effectiveness</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">recent spawns</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in policy_rows %}
+          <tr class="border-t border-edge align-top">
+            <td class="px-3 py-2 font-mono text-xs">
+              <a href="/goals/{{ r.id }}" class="text-link hover:underline" title="{{ r.id }}">{{ r.id_short }}…</a>
+            </td>
+            <td class="px-3 py-2 text-sm">
+              <div class="font-mono text-xs text-accent">{{ r.policy_name }}</div>
+              <div class="text-soft text-xs mt-0.5">{{ r.description }}</div>
+            </td>
+            <td class="px-3 py-2">{{ m.badge(r.status, r.status) }}</td>
+            <td class="px-3 py-2 font-mono text-right">{{ r.priority }}</td>
+            <td class="px-3 py-2 text-right">
+              {% if r.spawn_count == 0 %}
+                <span class="text-soft font-mono">0</span>
+              {% elif r.spawn_count >= 20 %}
+                {{ m.badge(r.spawn_count|string, extra_class='bg-amber-50 text-amber-800 border-amber-200') }}
+              {% else %}
+                <span class="font-mono">{{ r.spawn_count }}</span>
+              {% endif %}
+            </td>
+            <td class="px-3 py-2 font-mono text-xs text-soft whitespace-nowrap">
+              {% if r.last_fire %}
+                <span title="{{ r.last_fire|short_dt }}">{{ r.last_fire|relative_time }}</span>
+              {% else %}
+                <span class="italic">never</span>
+              {% endif %}
+            </td>
+            <td class="px-3 py-2 font-mono text-right">
+              {% if r.eff_pct is none %}
+                <span class="text-soft">—</span>
+              {% else %}
+                <span class="font-semibold">{{ '%.0f' % r.eff_pct }}%</span>
+                <div class="text-[10px] text-soft mt-0.5">{{ r.done_count }}/{{ r.spawn_count }} done{% if r.gone_count %} · {{ r.gone_count }} gone{% endif %}</div>
+              {% endif %}
+            </td>
+            <td class="px-3 py-2 text-xs">
+              {% if r.recent_spawns %}
+                <ul class="space-y-1">
+                  {% for sp in r.recent_spawns %}
+                    <li class="font-mono">
+                      <span class="text-soft">·</span>
+                      {% if sp.goal_id %}
+                        <a href="/goals/{{ sp.goal_id }}" class="text-link hover:underline" title="{{ sp.description }}">{{ sp.goal_id_short }}…</a>
+                      {% else %}
+                        <span class="text-soft italic">no id</span>
+                      {% endif %}
+                      <span class="text-soft text-[10px] ml-1" title="{{ sp.timestamp|short_dt }}">{{ sp.timestamp|relative_time }}</span>
+                      {% if sp.status %}
+                        <span class="ml-1">{{ m.badge(sp.status, sp.status) }}</span>
+                      {% endif %}
+                    </li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <span class="text-soft italic">never fired</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# ---------- 7-day timeline (hourly SVG bars) ---------- #}
+  {{ m.section_title('Spawn timeline', 'last 7d · hourly · ' + buckets|length|string + ' slots') }}
+  <div class="border border-edge rounded bg-paper/40 p-4 mb-6">
+    {% set chart_w = 600 %}
+    {% set chart_h = 140 %}
+    {% set n = buckets|length %}
+    {% set bw = (chart_w / n) if n > 0 else 0 %}
+    {% set bar_pad = 0.5 %}
+    <svg viewBox="0 0 {{ chart_w }} {{ chart_h }}" width="100%" height="{{ chart_h }}"
+         preserveAspectRatio="none" class="block">
+      {# baseline #}
+      <line x1="0" y1="{{ chart_h - 0.5 }}" x2="{{ chart_w }}" y2="{{ chart_h - 0.5 }}"
+            stroke="#d8d4cc" stroke-width="1"/>
+      {% for b in buckets %}
+        {% set h = (b.count * (chart_h - 4) / max_bucket_count) if max_bucket_count > 0 else 0 %}
+        {% set x = loop.index0 * bw %}
+        {% set y = chart_h - h %}
+        {% if b.count > 0 %}
+          <rect x="{{ '%.2f' % (x + bar_pad) }}" y="{{ '%.2f' % y }}"
+                width="{{ '%.2f' % (bw - 2 * bar_pad if bw > 2 * bar_pad else bw) }}"
+                height="{{ '%.2f' % h }}"
+                fill="#664433">
+            <title>{{ b.iso }} — {{ b.count }} fire{% if b.count != 1 %}s{% endif %}</title>
+          </rect>
+        {% endif %}
+      {% endfor %}
+    </svg>
+    <div class="flex justify-between text-[10px] font-mono text-soft mt-1">
+      {% if buckets %}
+        <span>{{ buckets[0].label }}</span>
+        {% if buckets|length > 2 %}
+          <span>{{ buckets[(buckets|length // 2)].label }}</span>
+        {% endif %}
+        <span>{{ buckets[-1].label }}</span>
+      {% endif %}
+    </div>
+    <div class="text-[11px] text-soft font-mono mt-2">
+      max in hour: {{ max_bucket_count }} · since {{ timeline_cutoff|short_dt }}
+    </div>
+  </div>
+{% endif %}
+
+{# ---------- Decision-box / research framing (§ 5) ---------- #}
+{% call m.decision_box('Роль standing-целей (§ 5 архитектуры)') %}
+  <p class="text-sm leading-snug">
+    Standing-цели — <em>реактивный слой</em>. Они <strong>не действуют сами</strong>,
+    только триггерят подцели на основе сигналов окружения / истории
+    (alert observed, prev verify failed, deadline approaching). Их статус
+    стабильно <code class="bg-paper px-1 rounded">ACTIVE</code>; они не закрываются.
+  </p>
+  <p class="text-sm leading-snug mt-2">
+    Нормальный размер набора — <strong>5–15 standing-policy</strong>. Это формирует
+    «характер» агента: что он считает достойным внимания. Слишком много →
+    шум и постоянный реактивный режим; слишком мало → агент глух к среде.
+  </p>
+  <p class="text-xs text-soft font-mono mt-2 leading-snug">
+    Маркировка spawn'а: <code>originator = f"standing:{parent.id}"</code> (см.
+    <code>harnes/metacycle/standing.py</code>). Effectiveness = done_children / spawned;
+    «gone» = child удалён из <code>GoalRepository</code> (clean run / retention),
+    в done не учитывается.
+  </p>
+{% endcall %}
+
+{% endblock %}

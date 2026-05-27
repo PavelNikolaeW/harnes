@@ -60,6 +60,20 @@
   {% endcall %}
 {% endif %}
 
+{# Abandon — для активных/pending целей; не трогаем терминальные. #}
+{% if not read_only and goal.status.value in ('active', 'pending', 'suspended') %}
+  <form method="post" action="/goals/{{ goal.id }}/abandon"
+        class="flex gap-2 items-center mb-4"
+        onsubmit="return confirm('Abandon this goal? Перевод в ABANDONED необратим в одну сторону — agent больше не будет её брать.')">
+    <input type="text" name="reason" placeholder="reason for abandon"
+           class="border border-edge rounded px-2 py-1 font-mono text-sm bg-cream min-w-[20em]">
+    <button type="submit"
+            class="bg-stone-200 border border-stone-400 text-stone-800 px-3 py-1.5 rounded font-mono text-sm hover:bg-stone-300">
+      abandon goal
+    </button>
+  </form>
+{% endif %}
+
 {{ m.section_title('Predicate of success') }}
 {{ m.json_block(goal.predicate_of_success.model_dump(mode='json'), '20em') }}
 

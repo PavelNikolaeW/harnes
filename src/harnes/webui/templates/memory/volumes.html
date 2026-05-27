@@ -1,0 +1,281 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}memory volumes{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-semibold mb-1">
+  Memory volumes
+  <span class="text-soft font-normal text-base font-mono">— snapshot · {{ now|short_dt }} UTC</span>
+</h1>
+<p class="text-soft text-sm mb-2">
+  Объёмы 4 слоёв памяти (см. § 13 архитектуры): episodic / semantic / world / procedural.
+  Используй для observability — рост LanceDB, размер Qdrant collection, насыщение KG, портфолио скиллов.
+</p>
+<p class="text-soft text-xs mb-6 font-mono">
+  Consolidation/decay policy ещё open question в § 13 — на v0 ничего не вычищается, рост монотонный.
+</p>
+
+{# ---------- Top stat cards: per-layer totals ---------- #}
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+  {# Episodic #}
+  {% if episodic.error %}
+    {{ m.stat_card('Episodic', 'error', 'LanceDB unreachable') }}
+  {% else %}
+    {{ m.stat_card(
+        'Episodic (LanceDB)',
+        '%d steps' % episodic.steps,
+        '%d trajectories' % episodic.trajectories
+    ) }}
+  {% endif %}
+
+  {# Semantic #}
+  {% if not semantic.available %}
+    {{ m.stat_card('Semantic (Qdrant)', '— down', 'collection unreachable') }}
+  {% elif semantic.error %}
+    {{ m.stat_card('Semantic (Qdrant)', 'error', semantic.error[:60]) }}
+  {% else %}
+    {{ m.stat_card(
+        'Semantic (Qdrant)',
+        '%d facts' % semantic.total,
+        ('dim %d · %s' % (semantic.dim, semantic.distance or 'cosine')) if semantic.dim else 'collection: %s' % semantic.collection
+    ) }}
+  {% endif %}
+
+  {# World #}
+  {% if not world.available %}
+    {{ m.stat_card('World (Neo4j)', '— down', 'driver unavailable') }}
+  {% elif world.error %}
+    {{ m.stat_card('World (Neo4j)', 'error', world.error[:60]) }}
+  {% else %}
+    {{ m.stat_card(
+        'World (Neo4j+Graphiti)',
+        '%d nodes' % world.nodes,
+        '%d edges' % world.edges
+    ) }}
+  {% endif %}
+
+  {# Procedural #}
+  {% if procedural.error %}
+    {{ m.stat_card('Procedural (skills)', 'error', procedural.error[:60]) }}
+  {% else %}
+    {{ m.stat_card(
+        'Procedural (skills)',
+        '%d skills' % procedural.total_skills,
+        ('%d invocations' % procedural.invocations) if procedural.invocations is not none else 'invocations: —'
+    ) }}
+  {% endif %}
+</div>
+
+{# =========================== EPISODIC =========================== #}
+{{ m.section_title('Episodic (LanceDB)', 'raw timeline всех steps — § 13.1') }}
+
+{% if episodic.error %}
+  {{ m.empty_state('Episodic store недоступен: ' ~ episodic.error) }}
+{% else %}
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+    {{ m.stat_card('Trajectories', episodic.trajectories) }}
+    {{ m.stat_card('Steps', episodic.steps,
+                   ('capped at limit=%d — данных больше, нужен native count()' % episodic_dump_limit) if episodic.capped else '') }}
+    {{ m.stat_card('Earliest step',
+                   episodic.earliest|short_dt if episodic.earliest else '—') }}
+    {{ m.stat_card('Latest step',
+                   episodic.latest|short_dt if episodic.latest else '—') }}
+  </div>
+
+  {# ---------- Growth chart за last 7d (inline SVG) ---------- #}
+  <div class="border border-edge rounded p-4 mb-6 bg-paper/40">
+    <div class="flex items-baseline justify-between mb-3">
+      <div class="text-[11px] uppercase tracking-wide text-soft font-mono">
+        Steps per day · last {{ growth_days }}d
+      </div>
+      <div class="text-[11px] font-mono text-soft">
+        max {{ episodic.max_growth }} step{{ '' if episodic.max_growth == 1 else 's' }}/day
+      </div>
+    </div>
+
+    {# Малое число bars (7) — рисуем widely-spaced, slot=chart_w/7.            #}
+    {% set chart_w = 600 %}
+    {% set chart_h = 140 %}
+    {% set n = episodic.growth_rows|length %}
+    <div class="overflow-x-auto">
+      <svg width="{{ chart_w }}" height="{{ chart_h + 22 }}" viewBox="0 0 {{ chart_w }} {{ chart_h + 22 }}"
+           class="block" role="img" aria-label="steps per day, last {{ growth_days }} days">
+        {# baseline #}
+        <line x1="0" y1="{{ chart_h }}" x2="{{ chart_w }}" y2="{{ chart_h }}"
+              stroke="#d8d4cc" stroke-width="1"/>
+        {% for b in episodic.growth_rows %}
+          {% set slot = chart_w / n %}
+          {% set bar_w = (slot * 0.6)|round(2) %}
+          {% set bar_x = (loop.index0 * slot + slot * 0.2)|round(2) %}
+          {% if episodic.max_growth > 0 %}
+            {% set bar_h = (b.steps * chart_h / episodic.max_growth)|round(2) %}
+          {% else %}
+            {% set bar_h = 0 %}
+          {% endif %}
+          {% set bar_y = chart_h - bar_h %}
+          <g>
+            {# hit-area для tooltip на весь slot #}
+            <rect x="{{ (loop.index0 * slot)|round(2) }}" y="0"
+                  width="{{ slot|round(2) }}" height="{{ chart_h }}"
+                  fill="transparent">
+              <title>{{ b.date }} · {{ b.steps }} step{{ '' if b.steps == 1 else 's' }}</title>
+            </rect>
+            {% if bar_h > 0 %}
+              <rect x="{{ bar_x }}" y="{{ bar_y }}"
+                    width="{{ bar_w }}" height="{{ bar_h }}"
+                    fill="#664433" opacity="0.85">
+                <title>{{ b.date }} · {{ b.steps }} step{{ '' if b.steps == 1 else 's' }}</title>
+              </rect>
+            {% else %}
+              {# empty-day risk — 2px stroke на baseline #}
+              <rect x="{{ bar_x }}" y="{{ chart_h - 1 }}"
+                    width="{{ bar_w }}" height="1"
+                    fill="#d8d4cc"/>
+            {% endif %}
+            {# X-axis label (mm-dd) под каждым bar — 7 шт умещаются. #}
+            {% set tx = (loop.index0 * slot + slot * 0.5)|round(2) %}
+            <text x="{{ tx }}" y="{{ chart_h + 14 }}"
+                  font-size="9" font-family="SF Mono,Menlo,monospace"
+                  fill="#555" text-anchor="middle">{{ b.label }}</text>
+          </g>
+        {% endfor %}
+      </svg>
+    </div>
+  </div>
+
+  {# ---------- Top 5 goals by step count ---------- #}
+  <div class="mb-8">
+    {{ m.section_title('Top 5 goals by step count', '(в последних %d steps)' % episodic.steps) }}
+    {% if episodic.top_goals %}
+      <div class="border border-edge rounded overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-paper text-soft">
+            <tr>
+              <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">goal</th>
+              <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">steps</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for g in episodic.top_goals %}
+              <tr class="border-t border-edge hover:bg-paper/60">
+                <td class="px-3 py-2 font-mono text-xs">
+                  <a href="/goals/{{ g.goal_id }}" class="text-link hover:underline">{{ g.goal_id[:8] }}…</a>
+                </td>
+                <td class="px-3 py-2 font-mono text-right">{{ g.steps }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      {{ m.empty_state('Нет goal_id у steps — episodic пуст или старые записи без goal_id.') }}
+    {% endif %}
+  </div>
+{% endif %}
+
+{# =========================== SEMANTIC =========================== #}
+{{ m.section_title('Semantic (Qdrant)', 'извлекаемые reflect`ом vector facts — § 13.2') }}
+
+{% if not semantic.available %}
+  {{ m.empty_state('Qdrant недоступен — webui не смог подключиться. Проверь docker compose ps qdrant и /health.') }}
+{% elif semantic.error %}
+  {{ m.empty_state('Qdrant available, но запрос упал: ' ~ semantic.error) }}
+{% else %}
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+    {{ m.stat_card('Total facts', semantic.total, 'collection: %s' % semantic.collection) }}
+    {{ m.stat_card('Vector dim', semantic.dim if semantic.dim else '—',
+                   'distance: %s' % (semantic.distance or '—')) }}
+  </div>
+  {% call m.decision_box('Consolidation status') %}
+    <p class="text-sm m-0">
+      В v0 reflect-агент upsert'ит факты в Qdrant без TTL/dedup policy. Дублирующиеся
+      эпизоды дают линейный рост collection. Decay/consolidation — открытый вопрос
+      (см. § 13: «consolidation/decay policy — open question»).
+    </p>
+  {% endcall %}
+{% endif %}
+
+{# =========================== WORLD =========================== #}
+{{ m.section_title('World (Neo4j+Graphiti)', 'temporal KG, явная модель мира — § 13.3') }}
+
+{% if not world.available %}
+  {{ m.empty_state('Neo4j/Graphiti недоступен — webui не смог подключиться. Проверь docker compose ps neo4j.') }}
+{% elif world.error %}
+  {{ m.empty_state('Neo4j unreachable: ' ~ world.error) }}
+{% else %}
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+    {{ m.stat_card('Nodes', world.nodes) }}
+    {{ m.stat_card('Edges', world.edges,
+                   ('%.2f edges/node avg' % (world.edges / world.nodes)) if world.nodes else '') }}
+    {{ m.stat_card('Distinct labels', world.labels|length) }}
+  </div>
+
+  <div class="mb-4">
+    <a href="/memory/world/graph"
+       class="inline-block bg-accent text-cream px-3 py-1.5 rounded font-mono text-xs hover:opacity-90">
+      → show as graph (Cytoscape)
+    </a>
+  </div>
+
+  {% if world.labels %}
+    <div class="border border-edge rounded overflow-hidden mb-8">
+      <table class="w-full text-sm">
+        <thead class="bg-paper text-soft">
+          <tr>
+            <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">label</th>
+            <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">count</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in world.labels %}
+            <tr class="border-t border-edge hover:bg-paper/60">
+              <td class="px-3 py-2 font-mono text-xs">{{ r.label }}</td>
+              <td class="px-3 py-2 font-mono text-right">{{ r.count }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    {{ m.empty_state('KG пуст — нет node label`ов. Graphiti ещё ничего не записал.') }}
+  {% endif %}
+{% endif %}
+
+{# =========================== PROCEDURAL =========================== #}
+{{ m.section_title('Procedural (skills + invocations)', 'git-versioned bundles + SQLite метрики — § 13.4') }}
+
+{% if procedural.error %}
+  {{ m.empty_state('Skill registry недоступен: ' ~ procedural.error) }}
+{% else %}
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+    {{ m.stat_card('Total skills', procedural.total_skills, 'bundles loaded from disk') }}
+    {{ m.stat_card('Total invocations',
+                   procedural.invocations if procedural.invocations is not none else '—',
+                   procedural.invocations_error if procedural.invocations_error else 'recorded in skill_invocations') }}
+  </div>
+
+  {% if procedural.by_status %}
+    <div class="flex flex-wrap items-center gap-2 mb-4">
+      <span class="text-[11px] uppercase text-soft tracking-wide font-mono">by status:</span>
+      {% for st in ['active', 'experimental', 'deprecated'] %}
+        {% set cnt = procedural.by_status.get(st, 0) %}
+        {{ m.badge('%s · %d' % (st, cnt), status=st) }}
+      {% endfor %}
+      {# Если в registry есть статус не из канонических — тоже отрисуем. #}
+      {% for st, cnt in procedural.by_status.items() %}
+        {% if st not in ['active', 'experimental', 'deprecated'] %}
+          {{ m.badge('%s · %d' % (st, cnt)) }}
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <div class="mb-4">
+    <a href="/skills"
+       class="inline-block bg-accent text-cream px-3 py-1.5 rounded font-mono text-xs hover:opacity-90">
+      → skills list
+    </a>
+  </div>
+{% endif %}
+{% endblock %}

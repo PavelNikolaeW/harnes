@@ -12,7 +12,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from harnes.metacycle.commands import CommandStore, CommandType
-from harnes.metacycle.journal import TickEventType, TickJournal
 from harnes.webui.config import WebuiSettings, get_webui_settings
 from harnes.webui.deps import get_command_store
 from harnes.webui.templating import templates
@@ -20,24 +19,16 @@ from harnes.webui.templating import templates
 router = APIRouter()
 
 
-def _is_loop_paused(journal: TickJournal | None) -> bool:
-    """Эвристика: последний LOOP_PAUSED/LOOP_RESUMED event определяет состояние.
+def _is_loop_paused(store: CommandStore) -> bool:
+    """Текущее состояние loop — по последней consumed pause/resume команде.
 
-    Это не строгий source of truth (run-loop держит flag in-memory),
-    но достаточно для UI: paused/running indicator.
+    Survivable: если оператор поставил pause, перезапустил контейнер, и run-loop
+    подтянул pause-state из CommandStore — UI это покажет корректно.
     """
-    if journal is None:
-        return False
     try:
-        recent = journal.recent_events(limit=20)
-        for ev in recent:
-            if ev.event_type == TickEventType.LOOP_PAUSED.value:
-                return True
-            if ev.event_type == TickEventType.LOOP_RESUMED.value:
-                return False
+        return store.latest_pause_state(only_consumed=True)
     except Exception:
-        pass
-    return False
+        return False
 
 
 @router.get("", response_class=HTMLResponse)
@@ -49,7 +40,7 @@ def list_commands(
     """История последних команд + быстрая панель управления."""
     rows = store.recent(limit=100)
     unconsumed = store.count_unconsumed()
-    paused = _is_loop_paused(request.app.state.journal)
+    paused = _is_loop_paused(store)
     return templates.TemplateResponse(
         request,
         "commands/list.html",

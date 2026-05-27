@@ -213,3 +213,95 @@ def reject(
     except (KeyError, ValueError) as exc:
         raise HTTPException(400, str(exc))
     return RedirectResponse(url=f"/goals/{goal_id}", status_code=303)
+
+
+@router.post("/{goal_id}/abandon", response_class=HTMLResponse)
+def abandon(
+    request: Request,
+    goal_id: str,
+    reason: str = Form("abandoned via webui"),
+    repo: GoalRepository = Depends(get_goal_repo),
+    cfg: WebuiSettings = Depends(get_webui_settings),
+) -> RedirectResponse:
+    """Ручная остановка active/pending цели — переводит в ABANDONED."""
+    if cfg.read_only:
+        raise HTTPException(403, "read-only mode")
+    try:
+        gid = UUID(goal_id)
+    except ValueError:
+        raise HTTPException(404, "invalid goal id")
+    goal = repo.get(gid)
+    if goal is None:
+        raise HTTPException(404, f"goal {goal_id} not found")
+    if goal.status in (GoalStatus.DONE, GoalStatus.FAILED, GoalStatus.ABANDONED):
+        raise HTTPException(400, f"goal is in terminal status {goal.status.value}")
+    goal.status = GoalStatus.ABANDONED
+    goal.metadata = {**goal.metadata, "abandon_reason": reason}
+    repo.update(goal)
+    return RedirectResponse(url=f"/goals/{goal_id}", status_code=303)
+
+
+@router.post("/bulk", response_class=HTMLResponse)
+def bulk_action(
+    request: Request,
+    action: str = Form(...),
+    ids: str = Form(...),
+    reason: str = Form("bulk action via webui"),
+    repo: GoalRepository = Depends(get_goal_repo),
+    cfg: WebuiSettings = Depends(get_webui_settings),
+) -> RedirectResponse:
+    """Apply action to many goals at once. `ids` — CSV of UUID strings.
+
+    Действия:
+    - approve  — PENDING_APPROVAL → PENDING
+    - reject   — PENDING_APPROVAL → ABANDONED
+    - abandon  — любой не-терминальный → ABANDONED
+    Per-goal ошибки агрегируются (не валим всё на одной).
+    """
+    if cfg.read_only:
+        raise HTTPException(403, "read-only mode")
+    if action not in ("approve", "reject", "abandon"):
+        raise HTTPException(400, f"unknown action: {action}")
+
+    id_list: list[UUID] = []
+    for raw in ids.split(","):
+        s = raw.strip()
+        if not s:
+            continue
+        try:
+            id_list.append(UUID(s))
+        except ValueError:
+            raise HTTPException(400, f"invalid uuid in ids: {s!r}")
+    if not id_list:
+        raise HTTPException(400, "ids cannot be empty")
+
+    applied = 0
+    errors: list[str] = []
+    for gid in id_list:
+        try:
+            if action == "approve":
+                repo.approve(gid)
+            elif action == "reject":
+                repo.reject(gid, reason)
+            else:  # abandon
+                goal = repo.get(gid)
+                if goal is None:
+                    errors.append(f"{gid}: not found")
+                    continue
+                if goal.status in (GoalStatus.DONE, GoalStatus.FAILED, GoalStatus.ABANDONED):
+                    errors.append(f"{gid}: terminal status {goal.status.value}")
+                    continue
+                goal.status = GoalStatus.ABANDONED
+                goal.metadata = {**goal.metadata, "abandon_reason": reason}
+                repo.update(goal)
+            applied += 1
+        except (KeyError, ValueError) as exc:
+            errors.append(f"{gid}: {exc}")
+
+    # Redirect on referer (preserves filter context).
+    ref = request.headers.get("referer", "/goals")
+    sep = "&" if "?" in ref else "?"
+    flash = f"bulk_action={action}&bulk_applied={applied}"
+    if errors:
+        flash += f"&bulk_errors={len(errors)}"
+    return RedirectResponse(url=f"{ref}{sep}{flash}", status_code=303)

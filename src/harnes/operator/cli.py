@@ -30,7 +30,6 @@ from harnes.goals.schema import (
 )
 from harnes.goals.store import GoalRepository
 
-
 # ---------- helpers ----------
 
 
@@ -304,7 +303,7 @@ def goal_tree(goal_id: str) -> None:
         click.echo(f"Goal {goal_id} not found", err=True)
         sys.exit(1)
 
-    def _walk(node: "Goal", prefix: str = "", is_last: bool = True) -> None:  # type: ignore[name-defined]
+    def _walk(node: Goal, prefix: str = "", is_last: bool = True) -> None:  # type: ignore[name-defined]
         marker = "└── " if is_last else "├── "
         click.echo(
             f"{prefix}{marker}{node.id} [{node.status.value:<16}] "
@@ -559,7 +558,7 @@ def run_loop(
     tick_journal = None
     snapshot_period = snapshot_every or settings.metacycle.snapshot_every_ticks
     if journal:
-        from harnes.metacycle.journal import TickJournal, TickEventType
+        from harnes.metacycle.journal import TickEventType, TickJournal
 
         tick_journal = TickJournal(settings.metacycle.journal_db_path)
 
@@ -645,7 +644,13 @@ def run_loop(
             },
         )
 
+    # Восстанавливаем pause-state из CommandStore (survives container restart).
     paused = False
+    if cmd_store is not None:
+        paused = cmd_store.latest_pause_state()
+        if paused:
+            log.info("metacycle.loop.resumed_paused_state", via="command_store")
+            click.echo("  (loop восстановлен в paused — последняя команда была pause)")
 
     try:
         while True:
@@ -720,7 +725,7 @@ def run_loop(
                     world=world_store,
                     skill_registry=skill_registry_for_reflect,
                 )
-            except Exception as exc:  # noqa: BLE001 — крах одного тика не должен валить loop
+            except Exception as exc:
                 error_count += 1
                 log.error(
                     "metacycle.loop.tick_crashed",
@@ -970,7 +975,6 @@ def run_eval(
     from harnes.memory.router import MemoryRouter
     from harnes.react.loop import run_react
     from harnes.skills.store import SkillRegistry
-    from harnes.tools.registry import get_registry
 
     if hf and tasks_file:
         click.echo("Use either --tasks-file OR --hf, not both", err=True)

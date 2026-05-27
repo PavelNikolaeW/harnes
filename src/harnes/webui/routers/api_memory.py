@@ -113,20 +113,51 @@ def _neo4j_driver(settings: Settings):
     )
 
 
-def _cytoscape_payload(driver, limit: int = 200) -> dict:
+_DESTRUCTIVE_CYPHER = (
+    "create", "delete", "remove", "set ", "merge", "drop", "load csv",
+    "call dbms", "call db.create", "call apoc.create",
+)
+
+
+def _is_safe_read_cypher(snippet: str) -> bool:
+    """Грубая защита от destructive операций в operator-вводе.
+
+    Эвристика, не полная sandbox — operator localhost тулом, не публичный API.
+    Достаточно отлавливать "ой, случайно вставил MERGE".
+    """
+    s = snippet.lower()
+    return not any(kw in s for kw in _DESTRUCTIVE_CYPHER)
+
+
+def _cytoscape_payload(
+    driver,
+    limit: int = 200,
+    labels: list[str] | None = None,
+    min_degree: int = 0,
+) -> dict:
     """Cypher → Cytoscape.js graph format.
 
-    LIMIT — на каждый side (узлы и рёбра) — браузер не тянет графы >1000 без
-    сильной оптимизации. Возвращает {"nodes": [...], "edges": [...]}.
+    LIMIT — на каждый side (узлы и рёбра); браузер не тянет графы >1k без
+    сильной оптимизации. `labels` — фильтр узлов; `min_degree` — отбросить
+    орбитальные узлы.
     """
     nodes: dict[str, dict] = {}
     edges: list[dict] = []
+    label_filter = ""
+    if labels:
+        # `WHERE ANY(lbl IN labels(n) WHERE lbl IN $labels)`
+        label_filter = " WHERE ANY(lbl IN labels(n) WHERE lbl IN $labels) "
     with driver.session() as s:
-        result = s.run(
-            "MATCH (n) RETURN n, elementId(n) AS eid, labels(n) AS lbls LIMIT $lim",
-            lim=limit,
+        node_q = (
+            f"MATCH (n) {label_filter}"
+            "RETURN n, elementId(n) AS eid, labels(n) AS lbls, "
+            "       size([(n)-[]-() | 1]) AS deg "
+            "LIMIT $lim"
         )
+        result = s.run(node_q, lim=limit, labels=labels or [])
         for rec in result:
+            if min_degree > 0 and int(rec["deg"] or 0) < min_degree:
+                continue
             n = rec["n"]
             nid = str(rec["eid"])
             props = dict(n)
@@ -140,28 +171,24 @@ def _cytoscape_payload(driver, limit: int = 200) -> dict:
                     "id": nid,
                     "label": label,
                     "display": str(display)[:80],
+                    "degree": int(rec["deg"] or 0),
                     "properties": {k: str(v)[:200] for k, v in props.items()},
                 }
             }
-        result = s.run(
+        # Edges — только между узлами, прошедшими фильтр.
+        edge_q = (
             "MATCH (a)-[r]->(b) "
             "RETURN elementId(a) AS sid, elementId(b) AS tid, type(r) AS rel, "
             "       elementId(r) AS eid, properties(r) AS rprops "
-            "LIMIT $lim",
-            lim=limit,
+            "LIMIT $lim"
         )
+        result = s.run(edge_q, lim=limit)
         for rec in result:
             sid = str(rec["sid"])
             tid = str(rec["tid"])
-            # Если узлы за пределами node LIMIT, добавим placeholder.
-            for nid in (sid, tid):
-                if nid not in nodes:
-                    nodes[nid] = {
-                        "data": {
-                            "id": nid, "label": "Node", "display": "…",
-                            "properties": {},
-                        }
-                    }
+            if sid not in nodes or tid not in nodes:
+                # Узел отфильтрован — пропускаем ребро.
+                continue
             edges.append({
                 "data": {
                     "id": str(rec["eid"]),
@@ -174,17 +201,106 @@ def _cytoscape_payload(driver, limit: int = 200) -> dict:
     return {"nodes": list(nodes.values()), "edges": edges}
 
 
+def _list_neo4j_labels(driver) -> list[str]:
+    """Все используемые labels для фильтра в UI."""
+    out: list[str] = []
+    with driver.session() as s:
+        try:
+            for rec in s.run("CALL db.labels()"):
+                out.append(rec["label"])
+        except Exception:
+            pass
+    return sorted(out)
+
+
+def _custom_cypher_payload(driver, snippet: str, limit: int = 200) -> dict:
+    """Custom Cypher (read-only) → Cytoscape.
+
+    Ожидается snippet который возвращает path / (a,r,b) / nodes/edges.
+    Применяется guardrail (без destructive keywords).
+    """
+    if not _is_safe_read_cypher(snippet):
+        raise HTTPException(
+            400,
+            "Cypher snippet содержит destructive keyword (CREATE/DELETE/SET/MERGE/REMOVE/DROP). "
+            "Webui разрешает только read-only запросы.",
+        )
+    nodes: dict[str, dict] = {}
+    edges: list[dict] = []
+    with driver.session() as s:
+        # Оборачиваем snippet в lazy CALL { ... } и берём первые $lim строк.
+        wrapped = f"CALL {{ {snippet} }} RETURN * LIMIT $lim"
+        result = s.run(wrapped, lim=limit)
+        for rec in result:
+            for value in rec.values():
+                _walk_value(value, nodes, edges)
+    return {"nodes": list(nodes.values()), "edges": edges}
+
+
+def _walk_value(value, nodes: dict, edges: list) -> None:
+    """Достать ноды/рёбра из любого Neo4j значения (Node/Relationship/Path/list)."""
+    from neo4j.graph import Node, Path, Relationship
+
+    if value is None:
+        return
+    if isinstance(value, Node):
+        nid = str(value.element_id)
+        if nid not in nodes:
+            props = dict(value)
+            label = (list(value.labels) or ["Node"])[0]
+            display = (props.get("name") or props.get("fact") or
+                       props.get("summary") or label)
+            nodes[nid] = {
+                "data": {
+                    "id": nid, "label": label,
+                    "display": str(display)[:80],
+                    "properties": {k: str(v)[:200] for k, v in props.items()},
+                }
+            }
+    elif isinstance(value, Relationship):
+        sid = str(value.start_node.element_id)
+        tid = str(value.end_node.element_id)
+        for n in (value.start_node, value.end_node):
+            _walk_value(n, nodes, edges)
+        edges.append({
+            "data": {
+                "id": str(value.element_id),
+                "source": sid, "target": tid,
+                "label": value.type,
+                "properties": {k: str(v)[:200] for k, v in dict(value).items()},
+            }
+        })
+    elif isinstance(value, Path):
+        for n in value.nodes:
+            _walk_value(n, nodes, edges)
+        for r in value.relationships:
+            _walk_value(r, nodes, edges)
+    elif isinstance(value, (list, tuple)):
+        for v in value:
+            _walk_value(v, nodes, edges)
+
+
 @router.get("/world/graph", response_class=HTMLResponse)
 def world_graph_page(
     request: Request,
+    settings: Settings = Depends(get_agent_settings),
     world: WorldModelStore | None = Depends(get_world),
 ) -> HTMLResponse:
     """Cytoscape-страница для KG. Данные тянутся из /memory/world/cytoscape.json."""
+    available_labels: list[str] = []
+    if world is not None:
+        try:
+            driver = _neo4j_driver(settings)
+            available_labels = _list_neo4j_labels(driver)
+            driver.close()
+        except Exception:
+            available_labels = []
     return templates.TemplateResponse(
         request,
         "memory/world_graph.html",
         {
             "world_available": world is not None,
+            "available_labels": available_labels,
         },
     )
 
@@ -192,19 +308,37 @@ def world_graph_page(
 @router.get("/world/cytoscape.json")
 def world_cytoscape_json(
     limit: int = 200,
+    labels: str = "",
+    min_degree: int = 0,
+    cypher: str = "",
     settings: Settings = Depends(get_agent_settings),
     world: WorldModelStore | None = Depends(get_world),
 ) -> JSONResponse:
-    """JSON-endpoint для Cytoscape.js. Direct Cypher через neo4j-driver."""
+    """JSON-endpoint для Cytoscape.js.
+
+    Параметры:
+    - `labels` — CSV-список Neo4j-labels для фильтра ("Episodic,Entity").
+    - `min_degree` — отбросить узлы с degree < min_degree.
+    - `cypher` — read-only snippet, перевешивает остальные фильтры.
+    """
     if world is None:
         raise HTTPException(503, "Neo4j/Graphiti недоступен")
     limit = max(1, min(limit, 1000))
+    label_list = [s.strip() for s in labels.split(",") if s.strip()] or None
+    min_degree = max(0, min_degree)
     try:
         driver = _neo4j_driver(settings)
     except Exception as exc:
         raise HTTPException(503, f"neo4j driver init failed: {exc}")
     try:
-        payload = _cytoscape_payload(driver, limit=limit)
+        if cypher.strip():
+            payload = _custom_cypher_payload(driver, cypher.strip(), limit=limit)
+        else:
+            payload = _cytoscape_payload(
+                driver, limit=limit, labels=label_list, min_degree=min_degree,
+            )
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(500, f"cypher query failed: {exc}")
     finally:
