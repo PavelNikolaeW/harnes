@@ -19,6 +19,7 @@ from harnes.memory.episodic import EpisodicStore
 from harnes.memory.router import MemoryRouter
 from harnes.memory.semantic import SemanticStore
 from harnes.memory.world import WorldModelStore
+from harnes.metacycle.commands import CommandStore
 from harnes.metacycle.journal import TickJournal
 from harnes.skills.store import SkillRegistry
 
@@ -65,6 +66,13 @@ def get_eval_history(request: Request) -> EvalHistoryStore:
     if eh is None:
         raise HTTPException(503, "eval history недоступен")
     return eh  # type: ignore[no-any-return]
+
+
+def get_command_store(request: Request) -> CommandStore:
+    cs = request.app.state.command_store
+    if cs is None:
+        raise HTTPException(503, "command store недоступен (path не writable)")
+    return cs  # type: ignore[no-any-return]
 
 
 def get_memory_router(request: Request) -> MemoryRouter:
@@ -120,6 +128,7 @@ def init_stores(settings: Settings) -> dict[str, Any]:
         "semantic": None,
         "world": None,
         "memory_router": None,
+        "command_store": None,
     }
 
     # --- Lightweight (file/sqlite, no network) ---
@@ -172,6 +181,15 @@ def init_stores(settings: Settings) -> dict[str, Any]:
             state["eval_history"] = EvalHistoryStore(settings.eval.history_db_path)
         except Exception as exc:
             log.warning("webui.init.eval_history.failed", error=str(exc))
+
+    if _parent_writable(settings.metacycle.commands_db_path):
+        try:
+            state["command_store"] = CommandStore(settings.metacycle.commands_db_path)
+        except Exception as exc:
+            log.warning("webui.init.command_store.failed", error=str(exc))
+    else:
+        log.warning("webui.init.command_store.path_missing",
+                    path=str(settings.metacycle.commands_db_path))
 
     # --- Network-зависимые: пытаемся, но не валим страницу при отказе ---
     try:

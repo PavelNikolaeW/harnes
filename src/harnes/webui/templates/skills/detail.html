@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}skill {{ skill.id }}{% endblock %}
+
+{% block content %}
+<div class="text-xs font-mono text-soft mb-1">
+  <a href="/skills" class="text-link hover:underline">← all skills</a>
+</div>
+
+<div class="flex items-baseline gap-3 mb-2">
+  <h1 class="text-2xl font-semibold">{{ skill.name }}</h1>
+  {{ m.badge(skill.status.value, skill.status.value) }}
+  <span class="font-mono text-sm text-soft">v{{ skill.version }}</span>
+</div>
+
+<div class="text-sm text-soft mb-6">{{ skill.description }}</div>
+
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+  {{ m.stat_card('Invocations', aggregated.invocation_count, 'across all versions') }}
+  {{ m.stat_card('Success rate',
+      (('%.0f%%' % (aggregated.success_rate * 100)) if aggregated.invocation_count else '—')) }}
+  {{ m.stat_card('Avg tokens',
+      (('%.0f' % aggregated.avg_cost_tokens) if aggregated.invocation_count else '—')) }}
+  {{ m.stat_card('Avg steps',
+      (('%.1f' % aggregated.avg_steps) if aggregated.invocation_count else '—')) }}
+</div>
+
+{# Per-version history #}
+{{ m.section_title('Versions', versions|length|string + ' tracked' if versions else 'no recorded invocations') }}
+{% if versions %}
+  <div class="border border-edge rounded overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-paper text-soft">
+        <tr>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">version</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">invocations</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">success</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">warning</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">avg tok</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">avg steps</th>
+          <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">last seen</th>
+          <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">failure modes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in versions %}
+          {% set ms = v.metrics %}
+          <tr class="border-t border-edge {% if v.version == skill.version %}bg-amber-50/40{% endif %}">
+            <td class="px-3 py-2 font-mono">
+              {{ v.version }}
+              {% if v.version == skill.version %}<span class="text-[10px] text-accent uppercase tracking-wide">current</span>{% endif %}
+            </td>
+            <td class="px-3 py-2 font-mono text-right">{{ ms.invocation_count }}</td>
+            <td class="px-3 py-2 font-mono text-right">{{ '%.0f%%' % (ms.success_rate * 100) }}</td>
+            <td class="px-3 py-2 font-mono text-right">{{ '%.0f%%' % (ms.warning_rate * 100) }}</td>
+            <td class="px-3 py-2 font-mono text-right">{{ '%.0f' % ms.avg_cost_tokens }}</td>
+            <td class="px-3 py-2 font-mono text-right">{{ '%.1f' % ms.avg_steps }}</td>
+            <td class="px-3 py-2 font-mono text-xs text-soft">{{ v.last_invocation|relative_time }}</td>
+            <td class="px-3 py-2 font-mono text-xs">
+              {% if ms.failure_modes %}
+                {% for k, c in ms.failure_modes.items() %}
+                  <span class="inline-block px-1 mr-1 text-[10px] bg-red-50 text-red-800 border border-red-200 rounded">{{ k }}: {{ c }}</span>
+                {% endfor %}
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  {{ m.empty_state('Скилл ни разу не вызывался — нет записей в skill_invocations.') }}
+{% endif %}
+
+{# Applicability + tools #}
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+  <div>
+    {{ m.section_title('Applicable goal classes') }}
+    {% if skill.applicable_goal_classes %}
+      <div class="flex flex-wrap gap-2">
+        {% for c in skill.applicable_goal_classes %}
+          {{ m.badge(c.value) }}
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-sm text-soft">Universal — применим к любому классу цели.</p>
+    {% endif %}
+  </div>
+  <div>
+    {{ m.section_title('Allowed tools') }}
+    {% if skill.allowed_tools %}
+      <ul class="space-y-1 text-sm font-mono">
+        {% for t in skill.allowed_tools %}
+          <li class="border border-edge rounded px-2 py-1 bg-paper inline-block mr-2">{{ t }}</li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-sm text-soft">Пусто — никаких action'ов не разрешено.</p>
+    {% endif %}
+  </div>
+</div>
+
+{# Prompt template #}
+{{ m.section_title('Prompt template') }}
+<pre class="bg-paper border border-edge rounded px-3 py-2 text-[12.5px] font-mono leading-snug overflow-auto whitespace-pre-wrap" style="max-height: 24em;">{{ skill.prompt_template }}</pre>
+
+{# Few-shot examples #}
+{% if skill.few_shot_examples %}
+  {{ m.section_title('Few-shot examples', skill.few_shot_examples|length|string) }}
+  <div class="space-y-3">
+    {% for ex in skill.few_shot_examples %}
+      <div class="border border-edge rounded p-3 bg-paper/30">
+        <div class="text-[11px] uppercase text-soft font-mono mb-1">user</div>
+        <pre class="text-sm whitespace-pre-wrap font-mono">{{ ex.user }}</pre>
+        <div class="text-[11px] uppercase text-soft font-mono mt-2 mb-1">assistant</div>
+        <pre class="text-sm whitespace-pre-wrap font-mono">{{ ex.assistant }}</pre>
+        {% if ex.notes %}<div class="text-xs text-soft mt-2 italic">{{ ex.notes }}</div>{% endif %}
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{# Pre/post conditions #}
+{% if skill.preconditions or skill.postconditions %}
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+    {% if skill.preconditions %}
+      <div>
+        {{ m.section_title('Preconditions') }}
+        <ul class="list-disc ml-5 text-sm space-y-1">
+          {% for p in skill.preconditions %}<li>{{ p }}</li>{% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+    {% if skill.postconditions %}
+      <div>
+        {{ m.section_title('Postconditions') }}
+        <ul class="list-disc ml-5 text-sm space-y-1">
+          {% for p in skill.postconditions %}<li>{{ p }}</li>{% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+  </div>
+{% endif %}
+
+{# Irreversibility overrides #}
+{% if skill.irreversibility_overrides %}
+  {{ m.section_title('Irreversibility overrides') }}
+  {{ m.json_block(skill.irreversibility_overrides, '12em') }}
+{% endif %}
+
+{# Required inputs #}
+{% if skill.required_inputs %}
+  {{ m.section_title('Required inputs schema') }}
+  {{ m.json_block(skill.required_inputs, '12em') }}
+{% endif %}
+
+{# Meta #}
+<div class="mt-8 text-xs font-mono text-soft border-t border-edge pt-3">
+  id: <code>{{ skill.id }}</code> ·
+  origin: {{ skill.origin.value }} ·
+  created {{ skill.created_at|short_dt }} ·
+  updated {{ skill.updated_at|short_dt }}
+  {% if skill.parent_version_id %} · parent v{{ skill.parent_version_id }}{% endif %}
+</div>
+{% endblock %}

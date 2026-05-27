@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}skills{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-semibold mb-1">Skills <span class="text-soft font-normal text-base font-mono">— {{ rows|length }}</span></h1>
+<p class="text-soft text-sm mb-4">
+  Бандлы из <code>procedural_store.bundles_dir</code>. Per-version метрики копятся в SQLite
+  (см. § 9 архитектуры). Reflect создаёт новые версии, deprecated не удаляются.
+</p>
+
+<form method="get" action="/skills" class="flex flex-wrap gap-3 items-end mb-6 p-3 bg-paper border border-edge rounded">
+  <label class="text-sm">
+    <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">status</span>
+    <select name="status" class="border border-edge rounded px-2 py-1 bg-cream font-mono text-sm min-w-[12em]">
+      <option value="">— all —</option>
+      {% for s in all_statuses %}
+        <option value="{{ s }}" {% if s == selected_status %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button type="submit" class="bg-ink text-cream text-sm px-3 py-1 rounded font-mono">apply</button>
+  {% if selected_status %}
+    <a href="/skills" class="text-link text-xs hover:underline ml-2">clear</a>
+  {% endif %}
+</form>
+
+{% if rows %}
+  <div class="border border-edge rounded overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-paper text-soft">
+        <tr>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">id</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">name</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">version</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">status</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">origin</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">invocations</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">success</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">avg tok</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">description</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+          {% set sk = r.skill %}
+          {% set ms = r.metrics %}
+          <tr class="border-t border-edge hover:bg-paper/60">
+            <td class="px-3 py-2 font-mono text-xs">
+              <a href="/skills/{{ sk.id }}" class="text-link hover:underline">{{ sk.id }}</a>
+            </td>
+            <td class="px-3 py-2">{{ sk.name }}</td>
+            <td class="px-3 py-2 font-mono text-xs">{{ sk.version }}</td>
+            <td class="px-3 py-2">{{ m.badge(sk.status.value, sk.status.value) }}</td>
+            <td class="px-3 py-2 font-mono text-xs text-soft">{{ sk.origin.value }}</td>
+            <td class="px-3 py-2 font-mono text-right">{{ ms.invocation_count }}</td>
+            <td class="px-3 py-2 font-mono text-right">
+              {% if ms.invocation_count %}{{ '%.0f%%' % (ms.success_rate * 100) }}{% else %}—{% endif %}
+            </td>
+            <td class="px-3 py-2 font-mono text-right">
+              {% if ms.invocation_count %}{{ '%.0f' % ms.avg_cost_tokens }}{% else %}—{% endif %}
+            </td>
+            <td class="px-3 py-2 text-soft text-xs">{{ sk.description[:80] }}{% if sk.description|length > 80 %}…{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  {{ m.empty_state('Скиллов нет под выбранным фильтром. Если bundles_dir пуст — добавь YAML-файл скилла в ./skills/.') }}
+{% endif %}
+{% endblock %}

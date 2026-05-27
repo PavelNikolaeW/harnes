@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}compare #{{ base.id }} → #{{ cand.id }}{% endblock %}
+
+{% block content %}
+<div class="text-xs font-mono text-soft mb-1">
+  <a href="/eval" class="text-link hover:underline">← all runs</a>
+</div>
+
+<h1 class="text-2xl font-semibold mb-1">
+  Compare: <a href="/eval/{{ base.id }}" class="text-link hover:underline">#{{ base.id }}</a>
+  → <a href="/eval/{{ cand.id }}" class="text-link hover:underline">#{{ cand.id }}</a>
+</h1>
+<p class="text-soft text-sm mb-6">
+  baseline → candidate · adapter <code>{{ base.adapter_name }}</code>
+  {% if base.eval_set %} · eval_set <code>{{ base.eval_set }}</code>{% endif %}
+</p>
+
+{% if warnings %}
+  <div class="border border-amber-200 bg-amber-50 text-amber-900 rounded p-3 mb-6 text-sm">
+    <div class="font-mono uppercase text-[11px] mb-2">⚠ comparison mismatches</div>
+    <ul class="list-disc ml-5 space-y-1 font-mono">
+      {% for w in warnings %}<li>{{ w }}</li>{% endfor %}
+    </ul>
+  </div>
+{% endif %}
+
+{# Headline diff table #}
+<div class="border border-edge rounded overflow-hidden mb-6">
+  <table class="w-full text-sm">
+    <thead class="bg-paper text-soft">
+      <tr>
+        <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">metric</th>
+        <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">baseline #{{ base.id }}</th>
+        <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">candidate #{{ cand.id }}</th>
+        <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">Δ</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+        {% set color = 'text-emerald-700' if r.direction == 'up' else ('text-red-700' if r.direction == 'down' else 'text-soft') %}
+        <tr class="border-t border-edge">
+          <td class="px-3 py-2 font-mono">{{ r.label }}</td>
+          <td class="px-3 py-2 font-mono text-right">
+            {% if r.fmt == 'pct' %}{{ '%.1f%%' % (r.base * 100) }}
+            {% elif r.fmt == 'num2' %}{{ '%.2f' % r.base }}
+            {% elif r.fmt == 'sec'  %}{{ '%.2fs' % r.base }}
+            {% else %}{{ '%.0f' % r.base }}{% endif %}
+          </td>
+          <td class="px-3 py-2 font-mono text-right">
+            {% if r.fmt == 'pct' %}{{ '%.1f%%' % (r.cand * 100) }}
+            {% elif r.fmt == 'num2' %}{{ '%.2f' % r.cand }}
+            {% elif r.fmt == 'sec'  %}{{ '%.2fs' % r.cand }}
+            {% else %}{{ '%.0f' % r.cand }}{% endif %}
+          </td>
+          <td class="px-3 py-2 font-mono text-right {{ color }}">
+            {{ r.arrow }}
+            {% if r.fmt == 'pct' %}{{ '%.1f%%' % (r.abs_delta * 100) }}
+            {% elif r.fmt == 'num2' %}{{ '%.2f' % r.abs_delta }}
+            {% elif r.fmt == 'sec'  %}{{ '%.2fs' % r.abs_delta }}
+            {% else %}{{ '%.0f' % r.abs_delta }}{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if mode_rows %}
+  {{ m.section_title('Failure modes diff') }}
+  <div class="border border-edge rounded overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-paper text-soft">
+        <tr>
+          <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">mode</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">baseline</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">candidate</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">Δ</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in mode_rows %}
+          {% set color = 'text-red-700' if r.delta > 0 else ('text-emerald-700' if r.delta < 0 else 'text-soft') %}
+          <tr class="border-t border-edge">
+            <td class="px-3 py-2 font-mono">{{ r.mode }}</td>
+            <td class="px-3 py-2 font-mono text-right">{{ r.base }}</td>
+            <td class="px-3 py-2 font-mono text-right">{{ r.cand }}</td>
+            <td class="px-3 py-2 font-mono text-right {{ color }}">{{ r.arrow }}{{ r.delta|abs }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+
+{% if skill_diffs %}
+  {{ m.section_title('Skill versions changed', skill_diffs|length|string) }}
+  <ul class="space-y-1 font-mono text-sm">
+    {% for d in skill_diffs %}
+      <li class="border border-edge rounded px-3 py-1.5 bg-paper/40 flex items-baseline gap-3">
+        <a href="/skills/{{ d.skill_id }}" class="text-link hover:underline">{{ d.skill_id }}</a>
+        <span class="text-soft text-xs">{{ d.base }}</span>
+        <span class="text-accent">→</span>
+        <span class="text-xs">{{ d.cand }}</span>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <div class="mt-4 text-sm text-soft font-mono">No skill version changes between runs.</div>
+{% endif %}
+
+<div class="mt-6 text-xs font-mono text-soft border-t border-edge pt-3">
+  baseline started {{ base.started_at|short_dt }}, git <code>{{ base.git_sha[:8] }}</code>,
+  config_hash <code>{{ base.config_hash }}</code>
+  <br>
+  candidate started {{ cand.started_at|short_dt }}, git <code>{{ cand.git_sha[:8] }}</code>,
+  config_hash <code>{{ cand.config_hash }}</code>
+  {% if base.config_hash != cand.config_hash %}
+    <span class="text-amber-700 ml-2">(config changed!)</span>
+  {% endif %}
+</div>
+{% endblock %}

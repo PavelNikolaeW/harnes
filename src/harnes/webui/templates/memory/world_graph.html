@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}world model — graph{% endblock %}
+
+{% block head_extra %}
+<script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="text-xs font-mono text-soft mb-1">
+  <a href="/memory" class="text-link hover:underline">← memory</a>
+</div>
+
+<div class="flex items-baseline justify-between mb-2">
+  <h1 class="text-2xl font-semibold">World model — graph</h1>
+  <div class="font-mono text-sm text-soft">
+    <span id="stats">loading…</span>
+  </div>
+</div>
+
+<p class="text-soft text-sm mb-4">
+  Temporal KG из Neo4j через Graphiti (см. § 14). Узлы — сущности агента
+  и его world model. Cypher <code>MATCH (n)-[r]-&gt;(m)</code> с лимитом ниже.
+</p>
+
+{% if not world_available %}
+  {{ m.empty_state('Neo4j/Graphiti недоступен — webui не смог подключиться. См. health-страницу.') }}
+{% else %}
+  <div class="flex flex-wrap gap-3 items-end mb-4 p-3 bg-paper border border-edge rounded">
+    <label class="text-sm">
+      <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">limit (each side)</span>
+      <input id="limit-input" type="number" value="200" min="10" max="1000" step="10"
+             class="border border-edge rounded px-2 py-1 bg-cream font-mono text-sm w-28">
+    </label>
+    <button id="reload-btn" type="button"
+            class="bg-accent text-cream px-3 py-1.5 rounded font-mono text-sm hover:opacity-90">
+      reload graph
+    </button>
+    <button id="fit-btn" type="button"
+            class="bg-ink text-cream px-3 py-1.5 rounded font-mono text-sm hover:opacity-90">
+      fit
+    </button>
+    <span class="text-xs text-soft font-mono">click узел → properties справа</span>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
+    <div id="cy" class="border border-edge rounded bg-cream"
+         style="height: 70vh; min-height: 480px;"></div>
+    <aside class="border border-edge rounded bg-paper/40 p-3 max-h-[70vh] overflow-auto">
+      <div id="inspector">
+        <div class="text-xs text-soft font-mono uppercase tracking-wide mb-2">node / edge inspector</div>
+        <p class="text-sm text-soft">Кликни на узел или ребро.</p>
+      </div>
+    </aside>
+  </div>
+
+<script>
+(function () {
+  const cyEl = document.getElementById('cy');
+  const inspector = document.getElementById('inspector');
+  const stats = document.getElementById('stats');
+  const limitInput = document.getElementById('limit-input');
+  let cy = null;
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[c]);
+  }
+
+  function renderInspector(payload, kind) {
+    const props = payload.properties || {};
+    const rows = Object.keys(props).map(k => `
+      <div class="grid grid-cols-[6em_1fr] gap-2 text-xs mb-1">
+        <div class="font-mono text-soft truncate" title="${escapeHtml(k)}">${escapeHtml(k)}</div>
+        <div class="font-mono break-all">${escapeHtml(props[k])}</div>
+      </div>`).join('');
+    inspector.innerHTML = `
+      <div class="text-xs text-soft font-mono uppercase tracking-wide mb-2">${kind}</div>
+      <div class="font-mono text-sm font-semibold mb-1">${escapeHtml(payload.display || payload.label)}</div>
+      <div class="text-xs text-soft font-mono mb-3">${escapeHtml(payload.label || '')} · id ${escapeHtml(payload.id)}</div>
+      ${rows || '<p class="text-sm text-soft">нет properties</p>'}
+    `;
+  }
+
+  function load() {
+    const lim = parseInt(limitInput.value || '200', 10);
+    stats.textContent = 'loading…';
+    fetch(`/memory/world/cytoscape.json?limit=${lim}`)
+      .then(r => r.ok ? r.json() : Promise.reject(`http ${r.status}`))
+      .then(data => {
+        stats.textContent = `${data.nodes.length} nodes · ${data.edges.length} edges`;
+        if (cy) cy.destroy();
+        cy = cytoscape({
+          container: cyEl,
+          elements: [...data.nodes, ...data.edges],
+          minZoom: 0.1, maxZoom: 4,
+          style: [
+            { selector: 'node', style: {
+                'background-color': '#aa7788',
+                'label': 'data(display)',
+                'font-family': 'SF Mono, Menlo, Consolas, monospace',
+                'font-size': 10,
+                'color': '#1a1a1a',
+                'text-valign': 'bottom',
+                'text-margin-y': 4,
+                'text-background-color': '#fdfdfb',
+                'text-background-opacity': 0.85,
+                'text-background-padding': 2,
+                'text-background-shape': 'roundrectangle',
+                'width': 16, 'height': 16,
+                'border-width': 1, 'border-color': '#664433',
+            }},
+            { selector: 'node:selected', style: {
+                'background-color': '#664433',
+                'width': 22, 'height': 22,
+                'border-width': 2,
+            }},
+            { selector: 'edge', style: {
+                'width': 1,
+                'line-color': '#d8d4cc',
+                'target-arrow-shape': 'triangle',
+                'target-arrow-color': '#d8d4cc',
+                'curve-style': 'bezier',
+                'label': 'data(label)',
+                'font-family': 'SF Mono, Menlo, Consolas, monospace',
+                'font-size': 8,
+                'color': '#888',
+                'text-rotation': 'autorotate',
+                'text-background-color': '#fdfdfb',
+                'text-background-opacity': 0.75,
+                'text-background-padding': 1,
+            }},
+            { selector: 'edge:selected', style: {
+                'line-color': '#664433',
+                'target-arrow-color': '#664433',
+                'width': 2,
+            }},
+          ],
+          layout: {
+            name: 'cose',
+            animate: false,
+            idealEdgeLength: 110,
+            nodeRepulsion: 18000,
+            edgeElasticity: 0.45,
+            gravity: 0.25,
+            randomize: true,
+          },
+        });
+        cy.on('tap', 'node', e => renderInspector(e.target.data(), 'node'));
+        cy.on('tap', 'edge', e => renderInspector(e.target.data(), 'edge'));
+      })
+      .catch(err => {
+        stats.textContent = `error: ${err}`;
+        inspector.innerHTML = `<div class="text-sm text-red-800 font-mono">Не удалось загрузить граф: ${escapeHtml(String(err))}</div>`;
+      });
+  }
+
+  document.getElementById('reload-btn').addEventListener('click', load);
+  document.getElementById('fit-btn').addEventListener('click', () => cy && cy.fit(undefined, 24));
+  load();
+})();
+</script>
+{% endif %}
+{% endblock %}

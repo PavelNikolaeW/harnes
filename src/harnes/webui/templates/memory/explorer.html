@@ -100,6 +100,12 @@
   {% endif %}
 
 {% elif type_ == 'world' %}
+  <div class="mb-3 text-sm">
+    <a href="/memory/world/graph"
+       class="inline-block bg-accent text-cream px-3 py-1.5 rounded font-mono text-xs hover:opacity-90">
+      → show as graph (Cytoscape)
+    </a>
+  </div>
   {% if not world_available %}
     {{ m.empty_state('Neo4j+Graphiti недоступен — webui не смог подключиться. См. health-страницу.') }}
   {% elif not q.strip() %}

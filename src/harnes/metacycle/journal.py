@@ -49,6 +49,10 @@ class TickEventType(str, Enum):
     ERROR = "error"
     LOOP_STARTED = "loop_started"
     LOOP_STOPPED = "loop_stopped"
+    # Web→agent IPC (webui pause/resume/trigger). См. metacycle/commands.py.
+    LOOP_PAUSED = "loop_paused"
+    LOOP_RESUMED = "loop_resumed"
+    COMMAND_APPLIED = "command_applied"
 
 
 # ---------- Rows ----------

@@ -471,6 +471,13 @@ def run_tick_cmd(real: bool, world: bool) -> None:
     default=None,
     help="v1.0: snapshot каждые N тиков (по умолчанию — из config.metacycle.snapshot_every_ticks)",
 )
+@click.option(
+    "--commands/--no-commands",
+    "commands_enabled",
+    default=True,
+    show_default=True,
+    help="Webui IPC: drain'ить web_commands (pause/resume/trigger_tick) перед каждым тиком",
+)
 def run_loop(
     interval: float,
     stub: bool,
@@ -479,6 +486,7 @@ def run_loop(
     journal: bool,
     resume: bool,
     snapshot_every: int | None,
+    commands_enabled: bool,
 ) -> None:
     """Непрерывный метацикл. Ctrl+C — graceful shutdown.
 
@@ -555,6 +563,13 @@ def run_loop(
 
         tick_journal = TickJournal(settings.metacycle.journal_db_path)
 
+    # Web→agent IPC: drain pause/resume/trigger_tick команд от webui.
+    cmd_store = None
+    if commands_enabled:
+        from harnes.metacycle.commands import CommandStore
+
+        cmd_store = CommandStore(settings.metacycle.commands_db_path)
+
     log.info(
         "metacycle.loop.start",
         interval=interval,
@@ -563,6 +578,7 @@ def run_loop(
         journal=journal,
         resume=resume,
         snapshot_every=snapshot_period,
+        commands=commands_enabled,
     )
 
     # Recovery: восстанавливаем счётчики и tick_id из последнего snapshot.
@@ -629,11 +645,66 @@ def run_loop(
             },
         )
 
+    paused = False
+
     try:
         while True:
             if max_ticks is not None and tick_id >= max_ticks:
                 log.info("metacycle.loop.max_ticks_reached", tick=tick_id)
                 break
+
+            # Drain web-команд: pause/resume — мгновенно меняют состояние;
+            # trigger_tick — позволяет выполнить один тик даже на паузе.
+            force_tick = False
+            if cmd_store is not None:
+                from harnes.metacycle.commands import CommandType, ConsumedStatus
+
+                for c in cmd_store.drain():
+                    if c.command == CommandType.PAUSE.value:
+                        if not paused:
+                            paused = True
+                            log.info("metacycle.loop.paused", via="webui", cmd_id=c.id)
+                            if tick_journal is not None:
+                                tick_journal.append(
+                                    tick_id, TickEventType.LOOP_PAUSED,
+                                    {"cmd_id": c.id, "issuer": c.issuer},
+                                )
+                            cmd_store.mark_consumed(c.id, ConsumedStatus.OK, {"paused": True})
+                        else:
+                            cmd_store.mark_consumed(c.id, ConsumedStatus.IGNORED,
+                                                    {"reason": "already paused"})
+                    elif c.command == CommandType.RESUME.value:
+                        if paused:
+                            paused = False
+                            log.info("metacycle.loop.resumed", via="webui", cmd_id=c.id)
+                            if tick_journal is not None:
+                                tick_journal.append(
+                                    tick_id, TickEventType.LOOP_RESUMED,
+                                    {"cmd_id": c.id, "issuer": c.issuer},
+                                )
+                            cmd_store.mark_consumed(c.id, ConsumedStatus.OK, {"paused": False})
+                        else:
+                            cmd_store.mark_consumed(c.id, ConsumedStatus.IGNORED,
+                                                    {"reason": "not paused"})
+                    elif c.command == CommandType.TRIGGER_TICK.value:
+                        force_tick = True
+                        log.info("metacycle.loop.tick_forced", via="webui", cmd_id=c.id)
+                        if tick_journal is not None:
+                            tick_journal.append(
+                                tick_id, TickEventType.COMMAND_APPLIED,
+                                {"cmd_id": c.id, "command": "trigger_tick"},
+                            )
+                        cmd_store.mark_consumed(c.id, ConsumedStatus.OK, {"forced_tick": True})
+                    else:
+                        log.warning("metacycle.loop.unknown_command",
+                                    cmd_id=c.id, command=c.command)
+                        cmd_store.mark_consumed(c.id, ConsumedStatus.IGNORED,
+                                                {"reason": "unknown command"})
+
+            # На паузе и без forced_tick — sleep и опрос команд снова.
+            if paused and not force_tick:
+                time.sleep(min(interval, 1.0))
+                continue
 
             if tick_journal is not None:
                 tick_journal.append(tick_id, TickEventType.TICK_STARTED, {})

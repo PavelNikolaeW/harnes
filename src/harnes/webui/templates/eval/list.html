@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}eval history{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-semibold mb-1">Eval history</h1>
+<p class="text-soft text-sm mb-4">
+  Прогоны benchmark-адаптеров (см. § 17 архитектуры + v1.0 #31, #32).
+  Held-out прогоны скрыты по умолчанию — research-hygiene; включи чекбокс перед релизом.
+</p>
+
+<form method="get" action="/eval" class="flex flex-wrap gap-3 items-end mb-6 p-3 bg-paper border border-edge rounded">
+  <label class="text-sm">
+    <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">adapter</span>
+    <input type="text" name="adapter" value="{{ adapter or '' }}" placeholder="memory_agent_bench"
+           class="border border-edge rounded px-2 py-1 bg-cream font-mono text-sm w-56">
+  </label>
+  <label class="text-sm">
+    <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">eval_set</span>
+    <input type="text" name="eval_set" value="{{ eval_set or '' }}" placeholder="mab_dev_ar"
+           class="border border-edge rounded px-2 py-1 bg-cream font-mono text-sm w-40">
+  </label>
+  <label class="text-sm">
+    <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">limit</span>
+    <input type="number" name="limit" value="{{ limit }}" min="1" max="500"
+           class="border border-edge rounded px-2 py-1 bg-cream font-mono text-sm w-24">
+  </label>
+  <label class="flex items-center gap-2 text-sm">
+    <input type="checkbox" name="include_held_out" value="true" {% if include_held_out %}checked{% endif %}>
+    <span class="font-mono">include held-out</span>
+  </label>
+  <button type="submit" class="bg-ink text-cream text-sm px-3 py-1 rounded font-mono">apply</button>
+</form>
+
+{% if include_held_out %}
+  <div class="border border-amber-200 bg-amber-50 text-amber-900 rounded p-3 mb-4 text-sm font-mono">
+    ⚠ showing held-out runs — оптимизировать против них = leak. Используй только при релизном замере.
+  </div>
+{% endif %}
+
+{% if runs %}
+  <div class="border border-edge rounded overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-paper text-soft">
+        <tr>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">id</th>
+          <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">adapter</th>
+          <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">eval_set</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">k</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">tasks</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">success</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">pass@k</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">stable@k</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">p95 s</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">fEnt</th>
+          <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">git</th>
+          <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">started</th>
+          <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in runs %}
+          <tr class="border-t border-edge hover:bg-paper/60 {% if r.held_out %}bg-amber-50/30{% endif %}">
+            <td class="px-3 py-2 font-mono text-right">
+              <a href="/eval/{{ r.id }}" class="text-link hover:underline">#{{ r.id }}</a>
+              {% if r.held_out %}<span class="text-amber-700">*</span>{% endif %}
+            </td>
+            <td class="px-3 py-2 font-mono text-xs">{{ r.adapter_name }}</td>
+            <td class="px-3 py-2 font-mono text-xs text-soft">{{ r.eval_set or '—' }}</td>
+            <td class="px-3 py-2 font-mono text-right">{{ r.repeat_k }}</td>
+            <td class="px-3 py-2 font-mono text-right">{{ r.total_tasks }}</td>
+            <td class="px-3 py-2 font-mono text-right">{{ '%.1f%%' % (r.success_rate * 100) }}</td>
+            <td class="px-3 py-2 font-mono text-right">{{ '%.1f%%' % (r.pass_at_k * 100) }}</td>
+            <td class="px-3 py-2 font-mono text-right">{{ '%.1f%%' % (r.stable_at_k * 100) }}</td>
+            <td class="px-3 py-2 font-mono text-right">{{ '%.1f' % r.p95_steps }}</td>
+            <td class="px-3 py-2 font-mono text-right">{{ '%.2f' % r.failure_entropy }}</td>
+            <td class="px-3 py-2 font-mono text-xs text-soft">{{ r.git_sha[:8] }}</td>
+            <td class="px-3 py-2 font-mono text-xs text-soft">{{ r.started_at|short_dt }}</td>
+            <td class="px-3 py-2 text-xs text-soft">{{ r.notes[:40] }}{% if r.notes|length > 40 %}…{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if runs|length >= 2 %}
+    <form method="get" action="/eval/compare" class="mt-6 flex gap-3 items-end p-3 bg-paper border border-edge rounded">
+      <span class="text-[11px] uppercase text-soft tracking-wide font-mono">quick compare</span>
+      <label class="text-sm">
+        <span class="block text-[11px] text-soft font-mono">base</span>
+        <select name="base" class="border border-edge rounded px-2 py-1 bg-cream font-mono text-sm">
+          {% for r in runs %}
+            <option value="{{ r.id }}">#{{ r.id }} · {{ r.adapter_name }} · {{ r.started_at|short_dt }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="text-sm">
+        <span class="block text-[11px] text-soft font-mono">candidate</span>
+        <select name="cand" class="border border-edge rounded px-2 py-1 bg-cream font-mono text-sm">
+          {% for r in runs %}
+            <option value="{{ r.id }}" {% if loop.first %}selected{% endif %}>#{{ r.id }} · {{ r.adapter_name }} · {{ r.started_at|short_dt }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit" class="bg-accent text-cream px-3 py-1.5 rounded font-mono text-sm">compare →</button>
+    </form>
+  {% endif %}
+{% else %}
+  {{ m.empty_state('Прогонов нет. Запусти `uv run python -m harnes.operator run-eval --hf` или с локальным --tasks-file.') }}
+{% endif %}
+{% endblock %}

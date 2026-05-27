@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}web commands{% endblock %}
+
+{% block content %}
+<div class="flex items-baseline justify-between mb-2">
+  <h1 class="text-2xl font-semibold">Web→agent commands</h1>
+  <div class="flex items-baseline gap-3 font-mono text-sm">
+    {% if paused %}
+      {{ m.badge('loop paused', 'warning') }}
+    {% else %}
+      {{ m.badge('loop running', 'success') }}
+    {% endif %}
+    <span class="text-soft">unconsumed: <strong>{{ unconsumed }}</strong></span>
+  </div>
+</div>
+
+<p class="text-soft text-sm mb-6">
+  Append-only лог команд оператора. Agent run-loop drain'ит unconsumed
+  команды в начале каждой итерации и применяет их перед <code>sense</code>.
+  См. <code>harnes/metacycle/commands.py</code>.
+</p>
+
+{% if not read_only %}
+  <div class="border border-edge rounded p-4 bg-paper/40 mb-6">
+    <div class="text-[11px] uppercase tracking-wide text-soft font-mono mb-3">control</div>
+    <div class="flex flex-wrap gap-2 items-center">
+      <form method="post" action="/commands/pause">
+        <button type="submit"
+                {% if paused %}disabled{% endif %}
+                class="bg-amber-100 border border-amber-300 text-amber-900 px-3 py-1.5 rounded font-mono text-sm hover:bg-amber-200 disabled:opacity-50 disabled:cursor-not-allowed">
+          ⏸ pause
+        </button>
+      </form>
+      <form method="post" action="/commands/resume">
+        <button type="submit"
+                {% if not paused %}disabled{% endif %}
+                class="bg-emerald-100 border border-emerald-300 text-emerald-900 px-3 py-1.5 rounded font-mono text-sm hover:bg-emerald-200 disabled:opacity-50 disabled:cursor-not-allowed">
+          ▶ resume
+        </button>
+      </form>
+      <form method="post" action="/commands/trigger_tick">
+        <button type="submit"
+                class="bg-sky-100 border border-sky-300 text-sky-900 px-3 py-1.5 rounded font-mono text-sm hover:bg-sky-200">
+          ▷ trigger one tick
+        </button>
+      </form>
+      <span class="text-xs text-soft font-mono ml-2">
+        команды применяются в начале следующего опроса (~interval s, ≤1s на паузе)
+      </span>
+    </div>
+  </div>
+{% endif %}
+
+{{ m.section_title('History', rows|length|string + ' recent') }}
+
+{% if rows %}
+  <div class="border border-edge rounded overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-paper text-soft">
+        <tr>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">id</th>
+          <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">issued</th>
+          <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">command</th>
+          <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">issuer</th>
+          <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">consumed</th>
+          <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">status</th>
+          <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">result</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+          <tr class="border-t border-edge {% if r.consumed_at is none %}bg-amber-50/40{% endif %}">
+            <td class="px-3 py-2 font-mono text-right">{{ r.id }}</td>
+            <td class="px-3 py-2 font-mono text-xs text-soft">{{ r.issued_at|short_dt }}</td>
+            <td class="px-3 py-2 font-mono text-accent">{{ r.command }}</td>
+            <td class="px-3 py-2 font-mono text-xs text-soft">{{ r.issuer }}</td>
+            <td class="px-3 py-2 font-mono text-xs text-soft">
+              {% if r.consumed_at %}{{ r.consumed_at|relative_time }}{% else %}<em>pending</em>{% endif %}
+            </td>
+            <td class="px-3 py-2">
+              {% if r.consumed_status %}
+                {{ m.badge(r.consumed_status,
+                           'success' if r.consumed_status == 'ok' else ('failed' if r.consumed_status == 'error' else 'warning')) }}
+              {% else %}—{% endif %}
+            </td>
+            <td class="px-3 py-2 font-mono text-xs text-soft">
+              {% if r.result_json and r.result_json != '{}' %}{{ r.result_json }}{% else %}—{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  {{ m.empty_state('Команд ещё не было.') }}
+{% endif %}
+
+{% call m.decision_box('Как это работает') %}
+<ul class="text-sm space-y-1">
+  <li><strong>pause</strong> — agent run-loop не делает тики, только sleep + опрос команд. Журнал получает LOOP_PAUSED event.</li>
+  <li><strong>resume</strong> — снять pause. Без него pause длится до завершения процесса.</li>
+  <li><strong>trigger_tick</strong> — выполнить один тик прямо сейчас (даже на паузе). Полезно для пошагового исследования.</li>
+</ul>
+<p class="text-sm mt-2">
+  Запуск/остановка самого процесса run-loop — всё ещё через docker compose / CLI;
+  webui не управляет жизненным циклом контейнера.
+</p>
+{% endcall %}
+{% endblock %}

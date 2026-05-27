@@ -98,6 +98,10 @@ class MetacycleConfig(BaseModel):
     # Каждые N тиков делается snapshot для recovery.
     snapshot_every_ticks: int = 50
 
+    # Web→agent IPC: append-only лог команд от admin-консоли (pause/resume/
+    # trigger_tick). Run-loop drain'ит unconsumed команды в начале тика.
+    commands_db_path: Path = Path("/app/data/web_commands.db")
+
 
 class Settings(BaseSettings):
     """Root settings object.

@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}eval run #{{ run.id }}{% endblock %}
+
+{% block content %}
+<div class="text-xs font-mono text-soft mb-1">
+  <a href="/eval" class="text-link hover:underline">← all runs</a>
+</div>
+
+<div class="flex items-baseline gap-3 mb-2">
+  <h1 class="text-2xl font-semibold font-mono">run #{{ run.id }}</h1>
+  <span class="font-mono text-soft">{{ run.adapter_name }}</span>
+  {% if run.eval_set %}{{ m.badge(run.eval_set) }}{% endif %}
+  {% if run.held_out %}{{ m.badge('held-out', extra_class='bg-amber-100 text-amber-900 border-amber-300') }}{% endif %}
+</div>
+
+<div class="text-xs font-mono text-soft mb-6">
+  started {{ run.started_at|short_dt }}
+  · ended {{ run.ended_at|short_dt }}
+  · git {{ run.git_sha[:12] }}
+  · config_hash {{ run.config_hash }}
+  · repeat_k={{ run.repeat_k }}
+</div>
+
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+  {{ m.stat_card('Tasks', run.total_tasks) }}
+  {{ m.stat_card('Success rate', '%.1f%%' % (run.success_rate * 100)) }}
+  {{ m.stat_card('pass@' ~ run.repeat_k, '%.1f%%' % (run.pass_at_k * 100)) }}
+  {{ m.stat_card('stable@' ~ run.repeat_k, '%.1f%%' % (run.stable_at_k * 100)) }}
+</div>
+
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+  {{ m.stat_card('Avg steps', '%.2f' % run.avg_steps) }}
+  {{ m.stat_card('p50 / p95 steps', '%.1f / %.1f' % (run.p50_steps, run.p95_steps)) }}
+  {{ m.stat_card('p50 / p95 latency', '%.1fs / %.1fs' % (run.p50_latency_s, run.p95_latency_s)) }}
+  {{ m.stat_card('Failure entropy', '%.2f bit' % run.failure_entropy) }}
+</div>
+
+{{ m.stat_card('Avg tokens', '%.0f' % run.avg_cost_tokens) }}
+
+{% if failure_modes %}
+  {{ m.section_title('Failure modes') }}
+  <ul class="space-y-1">
+    {% for mode, count in failure_modes.items()|sort(attribute=1, reverse=true) %}
+      <li class="flex items-baseline justify-between border border-edge rounded px-3 py-1.5 bg-paper/40">
+        <span class="font-mono text-sm">{{ mode }}</span>
+        <span class="font-mono text-sm text-soft">{{ count }}</span>
+      </li>
+    {% endfor %}
+  </ul>
+{% endif %}
+
+{% if skill_versions %}
+  {{ m.section_title('Skill versions at prog run') }}
+  <div class="border border-edge rounded overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-paper text-soft">
+        <tr>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">skill_id</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">version</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for sid, ver in skill_versions.items() %}
+          <tr class="border-t border-edge">
+            <td class="px-3 py-2 font-mono">
+              <a href="/skills/{{ sid }}" class="text-link hover:underline">{{ sid }}</a>
+            </td>
+            <td class="px-3 py-2 font-mono text-xs">{{ ver }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+
+{% if run.notes %}
+  {{ m.section_title('Notes') }}
+  <div class="border border-edge rounded p-3 bg-paper/40 text-sm whitespace-pre-wrap">{{ run.notes }}</div>
+{% endif %}
+{% endblock %}

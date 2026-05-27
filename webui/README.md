@@ -32,7 +32,7 @@ export WEBUI_PORT=8080 WEBUI_RELOAD=true
 uv run python -m harnes.webui
 ```
 
-## Что есть в MVP
+## Что есть
 
 | View              | URL                | Что показывает                                                             |
 |-------------------|--------------------|----------------------------------------------------------------------------|
@@ -44,6 +44,13 @@ uv run python -m harnes.webui
 | Tick journal      | `/journal`         | Events + stats + последний snapshot, фильтры по event_type/tick_id          |
 | Tick live feed    | `/journal` (toggle) | SSE-стрим новых events каждые ~2s                                          |
 | Memory explorer   | `/memory`          | Tabs: episodic (keyword), semantic (vector), world (Graphiti KG)            |
+| World KG graph    | `/memory/world/graph` | Cytoscape-визуализация temporal KG; data via `/memory/world/cytoscape.json` |
+| Skills            | `/skills`          | Список бандлов с агрегированными метриками; deprecated не теряются          |
+| Skill detail      | `/skills/{id}`     | Prompt template, allowed tools, per-version history метрик                  |
+| Eval history      | `/eval`            | Прогоны benchmark'а с фильтрами; held-out скрыты по умолчанию               |
+| Eval detail       | `/eval/{id}`       | Полные метрики прогона + failure modes + snapshot skill_versions            |
+| Eval compare      | `/eval/compare?base=&cand=` | Side-by-side diff двух прогонов (как CLI eval-compare)            |
+| Commands          | `/commands`        | Web→agent IPC: pause / resume / trigger_tick + история, status loop'а       |
 | Health            | `/health`          | TCP-чек Qdrant / Neo4j / LLM router + статус in-process stores              |
 | OpenAPI           | `/docs`, `/openapi.json` | автогенерация FastAPI                                                  |
 
@@ -58,9 +65,12 @@ JS, без отдельного front-build. SSE через `sse-starlette` дл
 
 - Approve/reject/create goal — webui пишет напрямую в `goals.db`; агент
   подхватит на следующем тике через `goal_arbitration`.
-- Запуск/остановка `run-loop` — **остаётся за CLI**, webui это не делает.
-  Тикать вручную из UI нет смысла, пока стоит автоматический loop.
-- Risk: два процесса (agent run-loop + webui POST) пишут в один SQLite.
+- Запуск/остановка контейнера — за docker compose / CLI; webui не управляет
+  жизненным циклом процесса.
+- Pause / resume / trigger_tick — через `commands` channel: webui пишет
+  команду в `web_commands.db`, agent `run-loop` drain'ит её в начале каждой
+  итерации перед `sense`. См. `harnes/metacycle/commands.py`.
+- Risk: два процесса (agent run-loop + webui POST) пишут в SQLite файлы.
   В нашем dev-объёме это не проблема (SQLite WAL хорошо себя ведёт под
   такой нагрузкой), но для записи стоит держать webui-операции редкими
   (approve/reject/create — не каждую секунду).
@@ -92,13 +102,14 @@ approve/reject/create. Удобно при demo / для второго слуш
 
 ## Limitations (известные, follow-ups)
 
-- **No write IPC с агентом.** Невозможно поставить агента на паузу или
-  триггерить тик из UI. Запуск/остановка `run-loop` — через CLI.
+- **Запуск/остановка процесса.** Контейнер по-прежнему стартует через
+  `docker compose`; webui не убивает и не запускает процессы. Pause/resume
+  и trigger_tick — только для уже работающего `run-loop`.
 - **Semantic search требует embeddings.** Если `fastembed`-fallback недоступен
   и роутер не возвращает `/v1/embeddings` — поиск падает. UI показывает ошибку.
-- **World model (KG-визуализация).** Сейчас flat node-list; full graph view
-  через Cytoscape — отложено.
-- **Skills view.** Не в MVP. Реестр скиллов виден через CLI.
+- **KG-визуализация.** Direct Cypher через neo4j-driver, LIMIT 200/200
+  по дефолту. Большие графы (>1k) не оптимизированы.
+- **Skill edit.** Read-only — изменения скиллов остаются за reflect и CLI.
 - **UTF-8 в curl.** Если посылаешь POST на `/goals` через `curl --data` с
   кириллицей — без `--data-urlencode` будут битые байты. Браузерная форма
   работает корректно (стандарт `application/x-www-form-urlencoded` + UTF-8).
@@ -107,15 +118,14 @@ approve/reject/create. Удобно при demo / для второго слуш
 
 Естественные следующие шаги:
 
-1. **Command channel webui→agent.** Отдельная таблица `web_commands` в
-   `goals.db`; agent run-loop её drain'ит на каждом тике. Это позволит
-   pause/resume, trigger-tick, переопределить бюджеты.
-2. **Skills view.** Список бандлов, history per-version метрик, diff между
-   версиями. Read-only — изменения скиллов остаются через reflect.
-3. **Eval-history view.** Тут уже есть store (`EvalHistoryStore`). Нужен
-   только template + router.
-4. **KG-визуализация** через Cytoscape.js. На уровне entity ≪10⁴ нод
-   браузер хорошо тянет.
-5. **Trajectory replay.** Архитектура (§16) обещает воспроизводимость —
+1. **Trajectory replay.** Архитектура (§16) обещает воспроизводимость —
    замечательно показать в UI rewind/forward по шагам с подсветкой того,
    что видел агент в каждый момент.
+2. **Diff trajectories.** Side-by-side сравнение двух trajectory'ев одной цели
+   (полезно после reflect-bump'а скилла).
+3. **World KG filters.** Фильтр по labels / Cypher-snippet input на странице
+   `/memory/world/graph`.
+4. **Bulk goal actions.** Approve/reject/abandon нескольких целей за раз.
+5. **Pause persistence.** Сейчас `paused`-flag живёт in-memory у run-loop;
+   рестарт контейнера сбрасывает. Может стоит хранить в `web_commands.db`
+   или TickJournal как latest state.
