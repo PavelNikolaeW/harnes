@@ -1,0 +1,433 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}diff {{ left_id[:8] }} ↔ {{ right_id[:8] }}{% endblock %}
+
+{% block content %}
+<div class="text-xs font-mono text-soft mb-1">
+  <a href="/trajectories" class="text-link hover:underline">← all trajectories</a>
+</div>
+
+<div class="flex items-baseline gap-3 mb-1 flex-wrap">
+  <h1 class="text-2xl font-semibold font-mono">
+    diff:
+    <a href="/trajectories/{{ left_id }}" class="text-link hover:underline">{{ left_id[:8] }}…</a>
+    <span class="text-accent">→</span>
+    <a href="/trajectories/{{ right_id }}" class="text-link hover:underline">{{ right_id[:8] }}…</a>
+  </h1>
+  <a href="?left={{ right_id }}&right={{ left_id }}"
+     class="text-xs font-mono text-link hover:underline border border-edge rounded px-2 py-0.5 bg-paper">
+    swap ↔
+  </a>
+</div>
+
+<p class="text-soft text-sm mb-4 font-mono">
+  left → right (oriented as in URL params)
+</p>
+
+{# Warnings #}
+{% if warnings %}
+  <div class="border border-amber-200 bg-amber-50 text-amber-900 rounded p-3 mb-6 text-sm">
+    <div class="font-mono uppercase text-[11px] mb-2">⚠ diff warnings</div>
+    <ul class="list-disc ml-5 space-y-1 font-mono">
+      {% for w in warnings %}<li>{{ w }}</li>{% endfor %}
+    </ul>
+  </div>
+{% endif %}
+
+{# Goal context #}
+<div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
+  {# left goal #}
+  <div class="border border-edge rounded p-3 bg-paper/40">
+    <div class="text-[11px] uppercase tracking-wide text-soft font-mono mb-1">
+      left · goal
+    </div>
+    {% if left_goal %}
+      <a href="/goals/{{ left_goal.id }}" class="text-link hover:underline text-sm">
+        {{ left_goal.description }}
+      </a>
+      <div class="flex gap-2 mt-2">
+        {{ m.badge(left_goal.goal_class.value) }}
+        {{ m.badge(left_goal.status.value, left_goal.status.value) }}
+      </div>
+    {% else %}
+      <div class="text-xs text-soft font-mono">
+        goal_id: {{ left_meta.goal_id or '—' }} (not found in repo)
+      </div>
+    {% endif %}
+  </div>
+  {# right goal #}
+  <div class="border border-edge rounded p-3 bg-paper/40">
+    <div class="text-[11px] uppercase tracking-wide text-soft font-mono mb-1">
+      right · goal
+    </div>
+    {% if right_goal %}
+      <a href="/goals/{{ right_goal.id }}" class="text-link hover:underline text-sm">
+        {{ right_goal.description }}
+      </a>
+      <div class="flex gap-2 mt-2">
+        {{ m.badge(right_goal.goal_class.value) }}
+        {{ m.badge(right_goal.status.value, right_goal.status.value) }}
+      </div>
+    {% else %}
+      <div class="text-xs text-soft font-mono">
+        goal_id: {{ right_meta.goal_id or '—' }} (not found in repo)
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if same_goal %}
+  <div class="text-xs font-mono text-emerald-700 mb-6">
+    ✓ same goal_id on both sides
+  </div>
+{% endif %}
+
+{# Header metadata side-by-side #}
+<div class="grid grid-cols-2 gap-3 mb-6">
+  <div class="border border-edge rounded p-3 bg-paper/40">
+    <div class="flex items-baseline gap-3">
+      <span class="text-[11px] uppercase tracking-wide text-soft font-mono">left</span>
+      {{ m.badge(left_meta.status, left_meta.status) }}
+    </div>
+    <div class="text-xs font-mono text-soft mt-1 break-all">{{ left_meta.id }}</div>
+    <div class="text-xs font-mono text-soft mt-0.5">
+      started {{ left_meta.started_at|short_dt }} ·
+      ended {{ left_meta.ended_at|short_dt if left_meta.ended_at else '—' }}
+    </div>
+  </div>
+  <div class="border border-edge rounded p-3 bg-paper/40">
+    <div class="flex items-baseline gap-3">
+      <span class="text-[11px] uppercase tracking-wide text-soft font-mono">right</span>
+      {{ m.badge(right_meta.status, right_meta.status) }}
+    </div>
+    <div class="text-xs font-mono text-soft mt-1 break-all">{{ right_meta.id }}</div>
+    <div class="text-xs font-mono text-soft mt-0.5">
+      started {{ right_meta.started_at|short_dt }} ·
+      ended {{ right_meta.ended_at|short_dt if right_meta.ended_at else '—' }}
+    </div>
+  </div>
+</div>
+
+{# Metric diff table #}
+{{ m.section_title('Metrics') }}
+<div class="border border-edge rounded overflow-hidden mb-6">
+  <table class="w-full text-sm">
+    <thead class="bg-paper text-soft">
+      <tr>
+        <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">metric</th>
+        <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">left</th>
+        <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">right</th>
+        <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">Δ</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in metric_rows %}
+        {% set color = 'text-emerald-700' if r.direction == 'up' else ('text-red-700' if r.direction == 'down' else 'text-soft') %}
+        <tr class="border-t border-edge">
+          <td class="px-3 py-2 font-mono">{{ r.label }}</td>
+          <td class="px-3 py-2 font-mono text-right">
+            {% if r.fmt == 'sec' %}{{ '%.2fs' % r.left }}
+            {% elif r.fmt == 'num2' %}{{ '%.2f' % r.left }}
+            {% else %}{{ '%.0f' % r.left }}{% endif %}
+          </td>
+          <td class="px-3 py-2 font-mono text-right">
+            {% if r.fmt == 'sec' %}{{ '%.2fs' % r.right }}
+            {% elif r.fmt == 'num2' %}{{ '%.2f' % r.right }}
+            {% else %}{{ '%.0f' % r.right }}{% endif %}
+          </td>
+          <td class="px-3 py-2 font-mono text-right {{ color }}">
+            {{ r.arrow }}
+            {% if r.fmt == 'sec' %}{{ '%.2fs' % r.abs_delta }}
+            {% elif r.fmt == 'num2' %}{{ '%.2f' % r.abs_delta }}
+            {% else %}{{ '%.0f' % r.abs_delta }}{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{# Step type breakdown side-by-side #}
+{% if left_agg.type_counts or right_agg.type_counts %}
+  {% set all_types = (left_agg.type_counts.keys()|list + right_agg.type_counts.keys()|list)|unique|sort %}
+  <div class="grid grid-cols-2 gap-3 mb-6">
+    <div class="border border-edge rounded p-3 bg-paper/40">
+      <div class="text-[11px] uppercase tracking-wide text-soft font-mono mb-2">left · step types</div>
+      <div class="flex flex-wrap gap-2">
+        {% for t in all_types %}
+          {% set c = left_agg.type_counts.get(t, 0) %}
+          <span class="px-2 py-1 bg-cream border border-edge rounded font-mono text-xs {% if c == 0 %}opacity-40{% endif %}">
+            <span class="text-accent">{{ t }}</span>: {{ c }}
+          </span>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="border border-edge rounded p-3 bg-paper/40">
+      <div class="text-[11px] uppercase tracking-wide text-soft font-mono mb-2">right · step types</div>
+      <div class="flex flex-wrap gap-2">
+        {% for t in all_types %}
+          {% set c = right_agg.type_counts.get(t, 0) %}
+          <span class="px-2 py-1 bg-cream border border-edge rounded font-mono text-xs {% if c == 0 %}opacity-40{% endif %}">
+            <span class="text-accent">{{ t }}</span>: {{ c }}
+          </span>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+{# Timeline side-by-side #}
+{{ m.section_title('Timeline', pairs|length|string + ' aligned rows') }}
+
+{% macro render_step_inline(s) -%}
+  {% set c = s.content %}
+  <div class="flex items-baseline gap-2 mb-1.5 flex-wrap">
+    <span class="font-mono text-sm font-semibold text-accent">{{ s.step_type }}</span>
+    <span class="text-xs font-mono text-soft">{{ s.timestamp|short_dt }}</span>
+    <span class="text-xs font-mono text-soft">{{ s.cost_tokens or 0 }}t · {{ '%.2fs' % (s.cost_latency or 0) }}</span>
+  </div>
+
+  {% if s.step_type == 'thought' %}
+    <div class="text-sm whitespace-pre-wrap leading-snug">{{ c.text }}</div>
+    {% if c.intent %}<div class="text-xs text-soft font-mono mt-1">intent: {{ c.intent }}</div>{% endif %}
+
+  {% elif s.step_type == 'plan' %}
+    {% if c.rationale %}<div class="text-xs italic text-soft mb-1">{{ c.rationale }}</div>{% endif %}
+    <ol class="list-decimal ml-5 text-xs space-y-0.5">
+      {% for p in (c.steps_intended or []) %}
+        <li>{{ p.description }}{% if p.expected_tool %} <code class="bg-paper px-1 rounded text-[11px]">{{ p.expected_tool }}</code>{% endif %}</li>
+      {% endfor %}
+    </ol>
+
+  {% elif s.step_type == 'action' %}
+    <div class="flex flex-wrap gap-2 items-baseline mb-1">
+      <code class="bg-paper border border-edge rounded px-2 py-0.5 text-xs font-mono">{{ c.tool_id }}</code>
+      {% if c.is_irreversible %}{{ m.badge('irreversible', 'failed') }}{% endif %}
+    </div>
+    {{ m.json_block(c.args, '10em') }}
+
+  {% elif s.step_type == 'observation' %}
+    {{ m.badge(c.outcome, c.outcome) }}
+    {% if c.error_detail %}
+      <div class="text-xs text-red-800 mt-1 font-mono">{{ c.error_detail }}</div>
+    {% endif %}
+    {% if c.payload is not none %}
+      {{ m.json_block(c.payload, '12em') }}
+    {% endif %}
+
+  {% elif s.step_type == 'critique' %}
+    {{ m.badge(c.verdict, c.verdict) }}
+    <div class="text-sm mt-1">{{ c.reasoning }}</div>
+    {% if c.recommendation %}
+      <div class="text-xs text-soft italic mt-1">recommendation: {{ c.recommendation }}</div>
+    {% endif %}
+
+  {% elif s.step_type == 'retry_note' %}
+    <div class="text-xs"><strong>failure:</strong> {{ c.failure_summary }}</div>
+    <div class="text-xs text-soft mt-1"><strong>plan:</strong> {{ c.recommendation_for_this_attempt }}</div>
+
+  {% else %}
+    {{ m.json_block(c, '12em') }}
+  {% endif %}
+{%- endmacro %}
+
+{% if pairs %}
+  <ol class="space-y-3">
+    {% for pair in pairs %}
+      {# Row-level accent: yellow if type mismatch, muted if both present and content match,
+         neutral otherwise. #}
+      {% set row_accent = '' %}
+      {% if pair.left_step is not none and pair.right_step is not none %}
+        {% if not pair.same_type %}
+          {% set row_accent = 'ring-1 ring-amber-300 bg-amber-50/40' %}
+        {% elif pair.content_match %}
+          {% set row_accent = 'opacity-70' %}
+        {% endif %}
+      {% endif %}
+
+      <li class="grid grid-cols-[2.5em_1fr_1fr] gap-2 items-stretch rounded {{ row_accent }}">
+        {# index column #}
+        <div class="text-xs font-mono text-soft pt-2 text-right pr-1">
+          {{ pair.index }}
+          {% if pair.left_step is not none and pair.right_step is not none and pair.content_match %}
+            <div class="text-emerald-700 text-[10px] mt-1">≡</div>
+          {% elif pair.left_step is not none and pair.right_step is not none and not pair.same_type %}
+            <div class="text-amber-700 text-[10px] mt-1">≠</div>
+          {% endif %}
+        </div>
+
+        {# left column #}
+        {% if pair.left_step is not none %}
+          <div class="border-l-4 {{ pair.left_step.step_type|step_color }} pl-2 py-2 border-y border-r border-edge rounded">
+            {{ render_step_inline(pair.left_step) }}
+          </div>
+        {% else %}
+          <div class="border border-dashed border-edge rounded py-2 px-3 text-center text-soft font-mono text-xs bg-paper/30 flex items-center justify-center">
+            —
+          </div>
+        {% endif %}
+
+        {# right column #}
+        {% if pair.right_step is not none %}
+          <div class="border-l-4 {{ pair.right_step.step_type|step_color }} pl-2 py-2 border-y border-r border-edge rounded">
+            {{ render_step_inline(pair.right_step) }}
+          </div>
+        {% else %}
+          <div class="border border-dashed border-edge rounded py-2 px-3 text-center text-soft font-mono text-xs bg-paper/30 flex items-center justify-center">
+            —
+          </div>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ol>
+{% else %}
+  {{ m.empty_state('Шагов нет ни в одной trajectory.') }}
+{% endif %}
+
+{# Final state diff #}
+{{ m.section_title('Final state diff') }}
+
+{% if final_diff.left_kind == 'empty' and final_diff.right_kind == 'empty' %}
+  {{ m.empty_state('Final state пуст в обеих trajectory.') }}
+
+{% elif final_diff.kind_mismatch %}
+  <div class="border border-amber-200 bg-amber-50 text-amber-900 rounded p-3 mb-4 text-xs font-mono">
+    final_state kinds differ: left=<strong>{{ final_diff.left_kind }}</strong>,
+    right=<strong>{{ final_diff.right_kind }}</strong>
+  </div>
+  {% if final_diff.text_diff %}
+    <pre class="bg-paper border border-edge rounded px-3 py-2 text-[12.5px] font-mono leading-snug overflow-auto" style="max-height: 30em;">{{ final_diff.text_diff }}</pre>
+  {% endif %}
+  <div class="grid grid-cols-2 gap-3 mt-4">
+    <div>
+      <div class="text-[11px] uppercase tracking-wide text-soft font-mono mb-1">left ({{ final_diff.left_kind }})</div>
+      {% if final_diff.left_kind == 'json' %}
+        {{ m.json_block(final_diff.left_value, '20em') }}
+      {% else %}
+        <pre class="bg-paper border border-edge rounded px-3 py-2 text-[12.5px] font-mono leading-snug overflow-auto whitespace-pre-wrap" style="max-height: 20em;">{{ final_diff.left_value or '—' }}</pre>
+      {% endif %}
+    </div>
+    <div>
+      <div class="text-[11px] uppercase tracking-wide text-soft font-mono mb-1">right ({{ final_diff.right_kind }})</div>
+      {% if final_diff.right_kind == 'json' %}
+        {{ m.json_block(final_diff.right_value, '20em') }}
+      {% else %}
+        <pre class="bg-paper border border-edge rounded px-3 py-2 text-[12.5px] font-mono leading-snug overflow-auto whitespace-pre-wrap" style="max-height: 20em;">{{ final_diff.right_value or '—' }}</pre>
+      {% endif %}
+    </div>
+  </div>
+
+{% elif final_diff.left_kind == 'json' and final_diff.left_value is mapping and final_diff.right_value is mapping %}
+  {# Both dict — keys diff #}
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+    <div class="border border-edge rounded p-3 bg-paper/40">
+      <div class="text-[11px] uppercase tracking-wide text-soft font-mono mb-2">
+        added keys ({{ final_diff.added|length }})
+      </div>
+      {% if final_diff.added %}
+        <ul class="space-y-0.5 font-mono text-xs">
+          {% for k in final_diff.added %}
+            <li class="text-emerald-700">+ {{ k }}</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="text-xs text-soft font-mono">—</div>
+      {% endif %}
+    </div>
+    <div class="border border-edge rounded p-3 bg-paper/40">
+      <div class="text-[11px] uppercase tracking-wide text-soft font-mono mb-2">
+        removed keys ({{ final_diff.removed|length }})
+      </div>
+      {% if final_diff.removed %}
+        <ul class="space-y-0.5 font-mono text-xs">
+          {% for k in final_diff.removed %}
+            <li class="text-red-700">− {{ k }}</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="text-xs text-soft font-mono">—</div>
+      {% endif %}
+    </div>
+    <div class="border border-edge rounded p-3 bg-paper/40">
+      <div class="text-[11px] uppercase tracking-wide text-soft font-mono mb-2">
+        changed keys ({{ final_diff.changed|length }})
+      </div>
+      {% if final_diff.changed %}
+        <ul class="space-y-0.5 font-mono text-xs">
+          {% for ch in final_diff.changed %}
+            <li class="text-amber-700">~ {{ ch.key }}</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="text-xs text-soft font-mono">—</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if final_diff.changed %}
+    <div class="space-y-3 mb-4">
+      {% for ch in final_diff.changed %}
+        <div class="border border-edge rounded overflow-hidden">
+          <div class="bg-paper px-3 py-1 font-mono text-xs text-accent border-b border-edge">
+            ~ {{ ch.key }}
+          </div>
+          <div class="grid grid-cols-2 gap-px bg-edge">
+            <div class="bg-cream p-2">
+              <div class="text-[10px] uppercase text-soft font-mono mb-1">left</div>
+              {{ m.json_block(ch.left, '15em') }}
+            </div>
+            <div class="bg-cream p-2">
+              <div class="text-[10px] uppercase text-soft font-mono mb-1">right</div>
+              {{ m.json_block(ch.right, '15em') }}
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <div class="grid grid-cols-2 gap-3 mt-4">
+    <div>
+      <div class="text-[11px] uppercase tracking-wide text-soft font-mono mb-1">left · full final_state</div>
+      {{ m.json_block(final_diff.left_value, '25em') }}
+    </div>
+    <div>
+      <div class="text-[11px] uppercase tracking-wide text-soft font-mono mb-1">right · full final_state</div>
+      {{ m.json_block(final_diff.right_value, '25em') }}
+    </div>
+  </div>
+
+{% else %}
+  {# Both JSON but not both dict, OR both text — unified text diff. #}
+  {% if final_diff.text_diff %}
+    <pre class="bg-paper border border-edge rounded px-3 py-2 text-[12.5px] font-mono leading-snug overflow-auto" style="max-height: 30em;">{{ final_diff.text_diff }}</pre>
+  {% else %}
+    <div class="text-xs text-soft font-mono mb-4">Identical final states.</div>
+  {% endif %}
+  <div class="grid grid-cols-2 gap-3 mt-4">
+    <div>
+      <div class="text-[11px] uppercase tracking-wide text-soft font-mono mb-1">left</div>
+      {% if final_diff.left_kind == 'json' %}
+        {{ m.json_block(final_diff.left_value, '20em') }}
+      {% else %}
+        <pre class="bg-paper border border-edge rounded px-3 py-2 text-[12.5px] font-mono leading-snug overflow-auto whitespace-pre-wrap" style="max-height: 20em;">{{ final_diff.left_value or '—' }}</pre>
+      {% endif %}
+    </div>
+    <div>
+      <div class="text-[11px] uppercase tracking-wide text-soft font-mono mb-1">right</div>
+      {% if final_diff.right_kind == 'json' %}
+        {{ m.json_block(final_diff.right_value, '20em') }}
+      {% else %}
+        <pre class="bg-paper border border-edge rounded px-3 py-2 text-[12.5px] font-mono leading-snug overflow-auto whitespace-pre-wrap" style="max-height: 20em;">{{ final_diff.right_value or '—' }}</pre>
+      {% endif %}
+    </div>
+  </div>
+{% endif %}
+
+<div class="mt-8 text-xs font-mono text-soft border-t border-edge pt-3">
+  left: <a href="/trajectories/{{ left_id }}" class="text-link hover:underline">{{ left_id }}</a>
+  <br>
+  right: <a href="/trajectories/{{ right_id }}" class="text-link hover:underline">{{ right_id }}</a>
+</div>
+{% endblock %}

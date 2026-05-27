@@ -20,25 +20,46 @@ router = APIRouter()
 def list_trajectories(
     request: Request,
     status: str | None = None,
+    goal_id: str | None = None,
     limit: int = 50,
     episodic: EpisodicStore = Depends(get_episodic),
+    goal_repo: GoalRepository = Depends(get_goal_repo),
 ) -> HTMLResponse:
-    """Recent N трейекторий — meta-таблица."""
+    """Recent N трейекторий — meta-таблица. С опциональными status/goal_id фильтрами."""
     limit = max(1, min(limit, 500))
     if status:
         try:
             TrajectoryStatus(status)
         except ValueError:
             raise HTTPException(400, f"unknown status: {status}")
-    rows = episodic.recent_trajectories(limit=limit, status=status)
+
+    rows: list = []
+    goal_obj = None
+    if goal_id:
+        try:
+            gid = UUID(goal_id)
+        except ValueError:
+            raise HTTPException(400, f"invalid goal_id: {goal_id}")
+        rows = episodic.list_trajectories_for_goal(gid)
+        rows.sort(key=lambda r: r.get("started_at") or "", reverse=True)
+        if status:
+            rows = [r for r in rows if r.get("status") == status]
+        rows = rows[:limit]
+        goal_obj = goal_repo.get(gid)
+    else:
+        rows = episodic.recent_trajectories(limit=limit, status=status)
+
     return templates.TemplateResponse(
         request,
         "trajectories/list.html",
         {
             "trajectories": rows,
             "selected_status": status,
+            "selected_goal_id": goal_id,
+            "selected_goal": goal_obj,
             "all_statuses": [s.value for s in TrajectoryStatus],
             "limit": limit,
+            "diff_enabled": len(rows) >= 2,
         },
     )
 

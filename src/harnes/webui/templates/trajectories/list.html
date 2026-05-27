@@ -9,7 +9,19 @@
   Каждая запись — один прогон ReAct'а под листовую цель. См. § 7 архитектуры.
 </p>
 
+{% if selected_goal %}
+  <div class="border border-edge rounded p-3 mb-4 bg-paper/40 flex items-baseline gap-3">
+    <span class="text-[11px] uppercase tracking-wide text-soft font-mono">filtered by goal</span>
+    <a href="/goals/{{ selected_goal.id }}" class="text-link hover:underline font-mono text-sm">{{ selected_goal.id|short_uuid }}</a>
+    <span class="text-sm">{{ selected_goal.description }}</span>
+    <a href="/trajectories" class="ml-auto text-xs text-link hover:underline">clear filter</a>
+  </div>
+{% endif %}
+
 <form method="get" action="/trajectories" class="flex flex-wrap gap-3 items-end mb-6 p-3 bg-paper border border-edge rounded">
+  {% if selected_goal_id %}
+    <input type="hidden" name="goal_id" value="{{ selected_goal_id }}">
+  {% endif %}
   <label class="text-sm">
     <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">status</span>
     <select name="status" class="border border-edge rounded px-2 py-1 bg-cream font-mono text-sm min-w-[12em]">
@@ -28,39 +40,81 @@
 </form>
 
 {% if trajectories %}
-  <div class="border border-edge rounded overflow-hidden">
-    <table class="w-full text-sm">
-      <thead class="bg-paper text-soft">
-        <tr>
-          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">id</th>
-          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">status</th>
-          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">goal</th>
-          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">tokens</th>
-          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">latency</th>
-          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">started</th>
-          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">ended</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for t in trajectories %}
-          <tr class="border-t border-edge hover:bg-paper/60">
-            <td class="px-3 py-2 font-mono text-xs">
-              <a href="/trajectories/{{ t.id }}" class="text-link hover:underline">{{ t.id[:8] }}…</a>
-            </td>
-            <td class="px-3 py-2">{{ m.badge(t.status, t.status) }}</td>
-            <td class="px-3 py-2 font-mono text-xs">
-              <a href="/goals/{{ t.goal_id }}" class="text-link hover:underline">{{ t.goal_id[:8] }}…</a>
-            </td>
-            <td class="px-3 py-2 font-mono text-right">{{ t.total_cost_tokens }}</td>
-            <td class="px-3 py-2 font-mono text-right">{{ '%.2fs' % t.total_cost_latency }}</td>
-            <td class="px-3 py-2 font-mono text-xs text-soft">{{ t.started_at|short_dt }}</td>
-            <td class="px-3 py-2 font-mono text-xs text-soft">{{ t.ended_at|short_dt if t.ended_at else '—' }}</td>
+  <div x-data="diffSelector()">
+    {% if diff_enabled %}
+      <div class="flex items-center gap-3 mb-3 text-xs font-mono"
+           x-show="picked.length > 0" x-cloak>
+        <span class="text-soft">picked: <span x-text="picked.length"></span>/2</span>
+        <button type="button" @click="picked = []" class="text-link hover:underline">clear</button>
+        <a x-show="picked.length === 2"
+           :href="`/trajectories-diff/diff?left=${picked[0]}&right=${picked[1]}`"
+           class="ml-auto bg-accent text-cream px-3 py-1.5 rounded font-mono hover:opacity-90">
+          diff →
+        </a>
+      </div>
+    {% endif %}
+    <div class="border border-edge rounded overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-paper text-soft">
+          <tr>
+            {% if diff_enabled %}<th class="px-2 py-2"></th>{% endif %}
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">id</th>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">status</th>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">goal</th>
+            <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">tokens</th>
+            <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">latency</th>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">started</th>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">ended</th>
           </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {% for t in trajectories %}
+            <tr class="border-t border-edge hover:bg-paper/60">
+              {% if diff_enabled %}
+                <td class="px-2 py-2">
+                  <input type="checkbox" value="{{ t.id }}"
+                         @change="toggle($event.target.value, $event.target.checked)">
+                </td>
+              {% endif %}
+              <td class="px-3 py-2 font-mono text-xs">
+                <a href="/trajectories/{{ t.id }}" class="text-link hover:underline">{{ t.id[:8] }}…</a>
+              </td>
+              <td class="px-3 py-2">{{ m.badge(t.status, t.status) }}</td>
+              <td class="px-3 py-2 font-mono text-xs">
+                <a href="/goals/{{ t.goal_id }}" class="text-link hover:underline">{{ t.goal_id[:8] }}…</a>
+              </td>
+              <td class="px-3 py-2 font-mono text-right">{{ t.total_cost_tokens }}</td>
+              <td class="px-3 py-2 font-mono text-right">{{ '%.2fs' % t.total_cost_latency }}</td>
+              <td class="px-3 py-2 font-mono text-xs text-soft">{{ t.started_at|short_dt }}</td>
+              <td class="px-3 py-2 font-mono text-xs text-soft">{{ t.ended_at|short_dt if t.ended_at else '—' }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
 {% else %}
   {{ m.empty_state('Траекторий нет. ReAct ещё не запускался — попробуй `docker compose run agent` или `uv run python -m harnes.operator run-tick --real`.') }}
+{% endif %}
+
+{% if diff_enabled %}
+<script>
+function diffSelector() {
+  return {
+    picked: [],
+    toggle(id, on) {
+      if (on) {
+        if (this.picked.length >= 2) {
+          // 3rd select replaces the oldest.
+          this.picked.shift();
+        }
+        this.picked.push(id);
+      } else {
+        this.picked = this.picked.filter(x => x !== id);
+      }
+    },
+  }
+}
+</script>
 {% endif %}
 {% endblock %}

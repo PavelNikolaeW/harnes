@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}llm calls{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-semibold mb-1">
+  LLM call trace
+  <span class="text-soft font-normal text-base font-mono">— {{ total_calls }} call{% if total_calls != 1 %}s{% endif %}</span>
+</h1>
+<p class="text-soft text-sm mb-4">
+  Каждый <code>thought</code>/<code>action</code>/<code>critique</code>/<code>plan</code> ReAct-шаг — отдельный LLM-вызов.
+  Полный prompt/response не сохраняется; здесь — агрегат по уже записанным шагам в episodic store.
+  База для будущего cost dashboard.
+</p>
+
+<form method="get" action="/llm" class="flex flex-wrap gap-3 items-end mb-6 p-3 bg-paper border border-edge rounded">
+  <label class="text-sm">
+    <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">step_type</span>
+    <select name="step_type" class="border border-edge rounded px-2 py-1 bg-cream font-mono text-sm min-w-[10em]">
+      {% for s in all_step_types %}
+        <option value="{{ s }}" {% if s == selected_step_type %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="text-sm">
+    <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">trajectory_id</span>
+    <input type="text" name="trajectory_id" value="{{ selected_trajectory_id }}" placeholder="UUID"
+           class="border border-edge rounded px-2 py-1 bg-cream font-mono text-xs w-[22em]">
+  </label>
+  <label class="text-sm">
+    <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">goal_id</span>
+    <input type="text" name="goal_id" value="{{ selected_goal_id }}" placeholder="UUID"
+           class="border border-edge rounded px-2 py-1 bg-cream font-mono text-xs w-[22em]">
+  </label>
+  <label class="text-sm">
+    <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">last X min (0 = all)</span>
+    <input type="number" name="since_minutes" value="{{ selected_since_minutes }}" min="0"
+           class="border border-edge rounded px-2 py-1 bg-cream font-mono text-sm w-24">
+  </label>
+  <label class="text-sm">
+    <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">min_tokens</span>
+    <input type="number" name="min_tokens" value="{{ selected_min_tokens }}" min="0"
+           class="border border-edge rounded px-2 py-1 bg-cream font-mono text-sm w-24">
+  </label>
+  <label class="text-sm">
+    <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">limit</span>
+    <input type="number" name="limit" value="{{ selected_limit }}" min="1" max="1000"
+           class="border border-edge rounded px-2 py-1 bg-cream font-mono text-sm w-24">
+  </label>
+  <button type="submit" class="bg-ink text-cream text-sm px-3 py-1 rounded font-mono">apply</button>
+  {% if selected_step_type != 'all' or selected_trajectory_id or selected_goal_id or selected_since_minutes or selected_min_tokens %}
+    <a href="/llm" class="text-link text-xs hover:underline ml-2">clear</a>
+  {% endif %}
+</form>
+
+{# ---------- Stat cards ---------- #}
+<div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+  {{ m.stat_card('Total calls', total_calls) }}
+  {{ m.stat_card('Total tokens', '%d' % total_tokens) }}
+  {{ m.stat_card('Mean latency', '%.2fs' % mean_latency, 'p50 %.2fs' % p50_latency) }}
+  {{ m.stat_card('p95 latency', '%.2fs' % p95_latency) }}
+  {{ m.stat_card('Mean tok/call', '%.0f' % mean_tokens) }}
+</div>
+
+{# ---------- Breakdown by step_type (pure CSS bars, no chart.js) ---------- #}
+{% if total_calls %}
+  <div class="border border-edge rounded p-4 mb-6 bg-paper/40">
+    <div class="text-[11px] uppercase tracking-wide text-soft font-mono mb-3">Breakdown by step_type</div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+      <div>
+        <div class="text-[11px] uppercase text-soft font-mono mb-2">calls</div>
+        {% for st, b in breakdown.items() %}
+          {% if b.calls > 0 %}
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="font-mono text-xs w-20 inline-block">{{ st }}</span>
+              <div class="flex-1 bg-cream border border-edge rounded h-5 overflow-hidden relative">
+                <div class="h-full {{ st|step_color }} border-l-4"
+                     style="width: {{ ((b.calls * 100.0 / max_breakdown_calls)|round(1)) if max_breakdown_calls else 0 }}%;"></div>
+              </div>
+              <span class="font-mono text-xs text-right w-16">{{ b.calls }}</span>
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+      <div>
+        <div class="text-[11px] uppercase text-soft font-mono mb-2">total tokens</div>
+        {% for st, b in breakdown.items() %}
+          {% if b.tokens > 0 %}
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="font-mono text-xs w-20 inline-block">{{ st }}</span>
+              <div class="flex-1 bg-cream border border-edge rounded h-5 overflow-hidden relative">
+                <div class="h-full {{ st|step_color }} border-l-4"
+                     style="width: {{ ((b.tokens * 100.0 / max_breakdown_tokens)|round(1)) if max_breakdown_tokens else 0 }}%;"></div>
+              </div>
+              <span class="font-mono text-xs text-right w-20">{{ b.tokens }}</span>
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+{# ---------- Table ---------- #}
+{% if rows %}
+  <div class="border border-edge rounded overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-paper text-soft">
+        <tr>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">timestamp</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">type</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">traj</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">goal</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">tokens</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">latency</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">model</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+          <tr class="border-t border-edge hover:bg-paper/60">
+            <td class="px-3 py-2 font-mono text-xs text-soft whitespace-nowrap">{{ r.timestamp|short_dt }}</td>
+            <td class="px-3 py-2">
+              <span class="inline-flex items-center px-2 py-0.5 text-[11px] font-mono uppercase tracking-wide rounded border {{ r.step_type|step_color }}">
+                {{ r.step_type }}
+              </span>
+            </td>
+            <td class="px-3 py-2 font-mono text-xs">
+              <a href="/trajectories/{{ r.trajectory_id }}" class="text-link hover:underline">{{ r.trajectory_id[:8] }}…</a>
+            </td>
+            <td class="px-3 py-2 font-mono text-xs">
+              <a href="/goals/{{ r.goal_id }}" class="text-link hover:underline">{{ r.goal_id[:8] }}…</a>
+            </td>
+            <td class="px-3 py-2 font-mono text-right">{{ r.cost_tokens }}</td>
+            <td class="px-3 py-2 font-mono text-right">{{ '%.2fs' % r.cost_latency }}</td>
+            <td class="px-3 py-2 font-mono text-xs text-soft">{{ r.model }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  {{ m.empty_state('Нет LLM-вызовов под этим фильтром. Если episodic store пуст — запусти ReAct: `docker compose run --rm agent` или `uv run python -m harnes.operator run-tick --real`. Если ReAct запускался — расширь фильтры (since_minutes=0, min_tokens=0, step_type=all).') }}
+{% endif %}
+{% endblock %}

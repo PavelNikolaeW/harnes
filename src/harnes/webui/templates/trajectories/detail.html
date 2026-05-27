@@ -11,6 +11,17 @@
 <div class="flex items-baseline gap-3 mb-2">
   <h1 class="text-2xl font-semibold font-mono">trajectory {{ meta.id[:8] }}…</h1>
   {{ m.badge(meta.status, meta.status) }}
+  <div class="ml-auto flex gap-2 text-xs">
+    <a href="/replay/{{ meta.id }}"
+       class="bg-accent text-cream px-3 py-1.5 rounded font-mono hover:opacity-90">
+      ▷ step-by-step replay
+    </a>
+    <a href="/trajectories?goal_id={{ meta.goal_id }}"
+       class="border border-edge text-soft px-3 py-1.5 rounded font-mono hover:bg-paper"
+       title="show all trajectories for this goal — pick one to diff against">
+      diff with…
+    </a>
+  </div>
 </div>
 
 <div class="text-xs font-mono text-soft mb-6">

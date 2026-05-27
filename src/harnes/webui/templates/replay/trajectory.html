@@ -1,0 +1,305 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}replay {{ meta.id[:8] }}{% endblock %}
+
+{% block content %}
+{# ----- Breadcrumb ----- #}
+<div class="text-xs font-mono text-soft mb-1 flex gap-3">
+  <a href="/trajectories" class="text-link hover:underline">← all trajectories</a>
+  <span class="text-edgex">/</span>
+  <a href="/trajectories/{{ meta.id }}" class="text-link hover:underline">trajectory {{ meta.id[:8] }}…</a>
+  <span class="text-edgex">/</span>
+  <span>replay</span>
+</div>
+
+<div class="flex items-baseline gap-3 mb-2">
+  <h1 class="text-2xl font-semibold font-mono">replay {{ meta.id[:8] }}…</h1>
+  {{ m.badge(meta.status, meta.status) }}
+  <a href="/trajectories/{{ meta.id }}"
+     class="ml-auto text-xs font-mono text-link hover:underline">← back to trajectory</a>
+</div>
+
+<div class="text-xs font-mono text-soft mb-6">
+  {{ meta.id }}
+  · started {{ meta.started_at|short_dt }}
+  · ended {{ meta.ended_at|short_dt if meta.ended_at else '—' }}
+  {% if goal %} · goal <a class="text-link hover:underline" href="/goals/{{ goal.id }}">{{ goal.id|short_uuid }}…</a>{% endif %}
+</div>
+
+{% if not steps %}
+  {{ m.empty_state('У траектории нет шагов — нечего проигрывать.') }}
+{% else %}
+
+{# ----- Alpine root: всё управление позицией в одном x-data ----- #}
+<div
+  x-data="replayState({
+    total: {{ steps|length }},
+    cumTokens: {{ cumulative_tokens_at|tojson }},
+    cumLatency: {{ cumulative_latency_at|tojson }},
+    stepTypes: {{ steps|map(attribute='step_type')|list|tojson }}
+  })"
+  x-init="init()"
+  @keydown.window.left.prevent="prev()"
+  @keydown.window.right.prevent="next()"
+  @keydown.window.k.prevent="prev()"
+  @keydown.window.j.prevent="next()"
+>
+
+  {# ----- Sticky control header ----- #}
+  <div class="sticky top-0 z-20 bg-cream border-b border-edge -mx-6 px-6 py-3 mb-4">
+    <div class="flex items-center gap-3">
+      <button
+        @click="prev()"
+        :disabled="idx === 0"
+        :class="idx === 0 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-paper'"
+        class="px-3 py-1 border border-edge rounded font-mono text-sm">
+        ← prev
+      </button>
+      <button
+        @click="next()"
+        :disabled="idx >= total - 1"
+        :class="idx >= total - 1 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-paper'"
+        class="px-3 py-1 border border-edge rounded font-mono text-sm">
+        next →
+      </button>
+      <div class="font-mono text-sm">
+        step <span class="font-semibold text-accent" x-text="idx + 1"></span>
+        of <span class="text-soft" x-text="total"></span>
+        <span class="text-soft ml-2" x-text="stepTypes[idx]"></span>
+      </div>
+      <button
+        @click="showContext = !showContext"
+        class="ml-auto text-xs font-mono px-2 py-1 border border-edge rounded hover:bg-paper">
+        <span x-text="showContext ? 'hide context' : 'show context'"></span>
+      </button>
+      <div class="text-xs font-mono text-soft">
+        <kbd class="px-1 border border-edge rounded">←</kbd>/<kbd class="px-1 border border-edge rounded">→</kbd>
+        or <kbd class="px-1 border border-edge rounded">k</kbd>/<kbd class="px-1 border border-edge rounded">j</kbd>
+      </div>
+    </div>
+
+    {# Progress bar #}
+    <div class="mt-2 h-1 bg-paper rounded overflow-hidden">
+      <div class="h-full bg-accent transition-all duration-150"
+           :style="`width: ${((idx + 1) / total) * 100}%`"></div>
+    </div>
+  </div>
+
+  {# ----- Two-column layout ----- #}
+  <div class="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-6">
+
+    {# === LEFT: timeline (compact, dimmed except active) === #}
+    <aside class="space-y-1">
+      <div class="text-[11px] uppercase tracking-wide text-soft font-mono mb-2">timeline</div>
+      <ol class="space-y-1">
+        {% for s in steps %}
+          <li>
+            <button
+              type="button"
+              @click="goto({{ loop.index0 }})"
+              :id="idx === {{ loop.index0 }} ? 'tl-current' : null"
+              :class="idx === {{ loop.index0 }}
+                ? 'bg-decision border-l-4 border-l-accent shadow-sm'
+                : (showContext && {{ loop.index0 }} < idx ? 'opacity-90' : 'opacity-50 hover:opacity-100')"
+              class="w-full text-left border-y border-r border-edge rounded pl-2 pr-2 py-1.5 transition-all
+                     border-l-4 {{ s.step_type|step_color }}">
+              <div class="flex items-baseline gap-2 text-xs font-mono">
+                <span class="text-soft w-5">{{ loop.index }}</span>
+                <span class="text-accent font-semibold">{{ s.step_type }}</span>
+                <span class="text-soft ml-auto">{{ s.cost_tokens or 0 }}t</span>
+              </div>
+              {% set c = s.content %}
+              <div class="text-[11px] text-soft truncate mt-0.5 font-mono">
+                {% if s.step_type == 'thought' %}{{ (c.text or '')[:60] }}
+                {% elif s.step_type == 'action' %}{{ c.tool_id or '—' }}
+                {% elif s.step_type == 'observation' %}{{ c.outcome or '—' }}
+                {% elif s.step_type == 'plan' %}{{ (c.rationale or '')[:60] }}
+                {% elif s.step_type == 'critique' %}{{ c.verdict or '—' }}
+                {% elif s.step_type == 'retry_note' %}{{ (c.failure_summary or '')[:60] }}
+                {% else %}—{% endif %}
+              </div>
+            </button>
+          </li>
+        {% endfor %}
+      </ol>
+    </aside>
+
+    {# === RIGHT: inspector of CURRENT step === #}
+    <section class="md:sticky md:top-32 md:self-start space-y-4">
+
+      {# Inspector blocks — render ALL server-side, Alpine toggles visibility #}
+      {% for s in steps %}
+        {% set c = s.content %}
+        <article
+          x-show="idx === {{ loop.index0 }}"
+          x-cloak
+          class="border-l-4 {{ s.step_type|step_color }} pl-4 py-3 border-y border-r border-edge rounded">
+
+          <header class="flex items-baseline gap-3 mb-3 pb-2 border-b border-edge">
+            <span class="text-xs font-mono text-soft">step {{ loop.index }}</span>
+            <span class="font-mono text-sm font-semibold text-accent">{{ s.step_type }}</span>
+            <span class="text-xs font-mono text-soft">{{ s.timestamp|short_dt }}</span>
+            <span class="text-xs font-mono text-soft ml-auto">
+              {{ s.cost_tokens or 0 }}t · {{ '%.2fs' % (s.cost_latency or 0) }}
+            </span>
+          </header>
+
+          {# ----- Per-type rich view (mirrors trajectories/detail.html) ----- #}
+          {% if s.step_type == 'thought' %}
+            <div class="text-[15px] whitespace-pre-wrap leading-relaxed">{{ c.text }}</div>
+            {% if c.intent %}
+              <div class="text-xs text-soft font-mono mt-2">intent: {{ c.intent }}</div>
+            {% endif %}
+
+          {% elif s.step_type == 'plan' %}
+            <div class="text-sm italic text-soft mb-3">{{ c.rationale }}</div>
+            <ol class="list-decimal ml-5 text-sm space-y-1">
+              {% for p in c.steps_intended %}
+                <li>{{ p.description }}{% if p.expected_tool %} <code class="bg-paper px-1 rounded text-xs">{{ p.expected_tool }}</code>{% endif %}</li>
+              {% endfor %}
+            </ol>
+
+          {% elif s.step_type == 'action' %}
+            <div class="flex flex-wrap gap-2 items-baseline mb-2">
+              <code class="bg-paper border border-edge rounded px-2 py-0.5 text-sm font-mono">{{ c.tool_id }}</code>
+              {% if c.is_irreversible %}{{ m.badge('irreversible', 'failed') }}{% endif %}
+            </div>
+            {% if c.expected_outcome %}
+              <div class="text-xs text-soft mb-2">expected: {{ c.expected_outcome }}</div>
+            {% endif %}
+            {{ m.json_block(c.args, '18em') }}
+
+          {% elif s.step_type == 'observation' %}
+            {{ m.badge(c.outcome, c.outcome) }}
+            {% if c.error_detail %}
+              <div class="text-sm text-red-800 mt-2 font-mono">{{ c.error_detail }}</div>
+            {% endif %}
+            {% if c.payload is not none %}
+              <div class="mt-2">{{ m.json_block(c.payload, '22em') }}</div>
+            {% endif %}
+
+          {% elif s.step_type == 'critique' %}
+            {{ m.badge(c.verdict, c.verdict) }}
+            <div class="text-sm mt-2">{{ c.reasoning }}</div>
+            {% if c.recommendation %}
+              <div class="text-sm text-soft italic mt-1">recommendation: {{ c.recommendation }}</div>
+            {% endif %}
+            {% if c.risks_identified %}
+              <ul class="text-xs text-soft mt-2 list-disc ml-5">
+                {% for r in c.risks_identified %}<li>{{ r }}</li>{% endfor %}
+              </ul>
+            {% endif %}
+
+          {% elif s.step_type == 'retry_note' %}
+            <div class="text-sm"><strong>failure:</strong> {{ c.failure_summary }}</div>
+            <div class="text-sm text-soft mt-1"><strong>plan:</strong> {{ c.recommendation_for_this_attempt }}</div>
+            <div class="text-xs font-mono text-soft mt-2">prev: {{ c.previous_trajectory_id }}</div>
+
+          {% else %}
+            {{ m.json_block(c, '22em') }}
+          {% endif %}
+        </article>
+      {% endfor %}
+
+      {# ----- Cumulative state up to current step ----- #}
+      <div class="border border-edge rounded p-3 bg-paper/40">
+        <div class="text-[11px] uppercase tracking-wide text-soft font-mono mb-2">
+          state up to this step
+        </div>
+        <div class="grid grid-cols-2 gap-3 text-sm font-mono">
+          <div>
+            <div class="text-[11px] text-soft uppercase">tokens consumed</div>
+            <div class="text-lg font-semibold" x-text="cumTokens[idx]"></div>
+          </div>
+          <div>
+            <div class="text-[11px] text-soft uppercase">latency elapsed</div>
+            <div class="text-lg font-semibold" x-text="cumLatency[idx].toFixed(2) + 's'"></div>
+          </div>
+        </div>
+
+        <div class="text-[11px] uppercase tracking-wide text-soft font-mono mt-3 mb-1">
+          previous steps of type "<span x-text="stepTypes[idx]"></span>"
+        </div>
+        <div class="text-xs font-mono">
+          <template x-if="sameTypeBefore().length === 0">
+            <span class="text-soft">— первое появление этого типа.</span>
+          </template>
+          <template x-for="i in sameTypeBefore()" :key="i">
+            <button
+              type="button"
+              @click="goto(i)"
+              class="inline-block mr-1 mb-1 px-2 py-0.5 border border-edge rounded bg-paper hover:bg-decision">
+              #<span x-text="i + 1"></span>
+            </button>
+          </template>
+        </div>
+      </div>
+    </section>
+  </div>
+
+</div>
+
+<script>
+function replayState({ total, cumTokens, cumLatency, stepTypes }) {
+  return {
+    total,
+    cumTokens,
+    cumLatency,
+    stepTypes,
+    idx: 0,
+    showContext: false,
+
+    init() {
+      // Read ?step=N (1-based) from URL on load.
+      const params = new URLSearchParams(window.location.search);
+      const raw = parseInt(params.get('step') || '1', 10);
+      const n = Number.isFinite(raw) ? raw : 1;
+      this.idx = Math.max(0, Math.min(n - 1, this.total - 1));
+      // Sync URL once at boot in case it was empty/out-of-range.
+      this.syncUrl();
+      this.$nextTick(() => this.scrollActive());
+    },
+
+    goto(i) {
+      this.idx = Math.max(0, Math.min(i, this.total - 1));
+      this.syncUrl();
+      this.$nextTick(() => this.scrollActive());
+    },
+
+    prev() { if (this.idx > 0) this.goto(this.idx - 1); },
+    next() { if (this.idx < this.total - 1) this.goto(this.idx + 1); },
+
+    syncUrl() {
+      const u = new URL(window.location.href);
+      u.searchParams.set('step', String(this.idx + 1));
+      history.replaceState(null, '', u.toString());
+    },
+
+    scrollActive() {
+      const el = document.getElementById('tl-current');
+      if (el && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    },
+
+    // Indices of previous steps with the same step_type as the current.
+    sameTypeBefore() {
+      const target = this.stepTypes[this.idx];
+      const out = [];
+      for (let i = 0; i < this.idx; i++) {
+        if (this.stepTypes[i] === target) out.push(i);
+      }
+      return out;
+    },
+  };
+}
+</script>
+
+<style>
+  [x-cloak] { display: none !important; }
+  kbd { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 0.7rem; }
+</style>
+
+{% endif %}
+{% endblock %}
