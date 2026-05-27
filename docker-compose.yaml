@@ -1,5 +1,17 @@
-# Single compose file: агент + Qdrant + Neo4j.
-# Memory-бэкенды поднимаются independently, агент стартует поверх них.
+# Stack: agent (run-loop) + webui (FastAPI) + Qdrant + Neo4j.
+#
+# Память:
+# - LanceDB / SQLite / skills — на host bind-mount (./data, ./skills).
+# - Qdrant / Neo4j — в named volumes контейнеров.
+# - LLM router (gemma-26b-a4b + BGE-M3 embeddings) — external на 192.168.0.111:8000.
+#
+# Запуск:
+#   cp .env.example .env  # отредактируй LLM__API_BASE если router не на 192.168.0.111
+#   docker compose up -d
+# UI: http://localhost:8080
+#
+# Env prefix: pydantic-settings использует "__" разделитель для nested полей
+# (см. harnes.config.Settings), поэтому LLM__API_BASE, MEMORY__NEO4J_URI и т.д.
 
 services:
   qdrant:
@@ -7,55 +19,75 @@ services:
     container_name: harnes-qdrant
     restart: unless-stopped
     ports:
-      - "6333:6333"  # HTTP REST
-      - "6334:6334"  # gRPC
+      - "6333:6333"
+      - "6334:6334"
     volumes:
       - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/6333' || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   neo4j:
     image: neo4j:5-community
     container_name: harnes-neo4j
     restart: unless-stopped
     ports:
-      - "7474:7474"  # HTTP
-      - "7687:7687"  # Bolt
+      - "7474:7474"
+      - "7687:7687"
     environment:
       NEO4J_AUTH: neo4j/harnes-dev-pw
-      # APOC нужен Graphiti для расширенных Cypher-функций.
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_dbms_security_procedures_unrestricted: 'apoc.*'
     volumes:
       - neo4j-data:/data
       - neo4j-logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   agent:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: harnes-agent
-    restart: "no"  # dev — не перезапускаем после exit; меняем на on-failure для непрерывного режима
+    restart: unless-stopped
     depends_on:
-      - qdrant
-      - neo4j
+      qdrant:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
     volumes:
-      # Состояние агента (LanceDB, SQLite, JSONL-traces) — на хосте, чтобы переживало пересборку.
       - ./data:/app/data
-      # Конфиг read-only.
       - ./config:/app/config:ro
-      # Git-versioned skill bundles, проброшены с хоста.
       - ./skills:/app/skills
     environment:
-      # LLM
-      LLM_API_BASE: "http://192.168.0.111:8000/v1"
-      LLM_API_KEY: "dummy"
-      LLM_MODEL: "gemma-26b-a4b"
-      # Memory backends (по hostname в compose-сети)
-      QDRANT_URL: "http://qdrant:6333"
-      NEO4J_URI: "bolt://neo4j:7687"
-      NEO4J_USER: "neo4j"
-      NEO4J_PASSWORD: "harnes-dev-pw"
-      # Прочее
-      LOGGING_LEVEL: "INFO"
+      # LLM router — env-var override (см. .env)
+      LLM__API_BASE: "${LLM_API_BASE:-http://192.168.0.111:8000/v1}"
+      LLM__API_KEY: "${LLM_API_KEY:-dummy}"
+      LLM__MODEL: "${LLM_MODEL:-gemma-26b-a4b}"
+      LLM__TIERS__LIGHT: "${LLM_TIER_LIGHT:-gemma-26b-a4b}"
+      LLM__TIERS__MAIN: "${LLM_TIER_MAIN:-gemma-26b-a4b}"
+      LLM__TIERS__HEAVY: "${LLM_TIER_HEAVY:-gemma-26b-a4b}"
+      # Embeddings — server-side BGE-M3 по дефолту, fallback на fastembed
+      EMBEDDINGS__USE_SERVER: "true"
+      EMBEDDINGS__MODEL: "bge-m3"
+      # Memory backends — по hostname'ам compose-сети
+      MEMORY__QDRANT_URL: "http://qdrant:6333"
+      MEMORY__NEO4J_URI: "bolt://neo4j:7687"
+      MEMORY__NEO4J_USER: "neo4j"
+      MEMORY__NEO4J_PASSWORD: "harnes-dev-pw"
+      # Storage paths (default /app/data/* подходит для volume-mount)
+      METACYCLE__JOURNAL_DB_PATH: "/app/data/metacycle_journal.db"
+      METACYCLE__COMMANDS_DB_PATH: "/app/data/web_commands.db"
+      # Misc
+      LOGGING__LEVEL: "${LOGGING_LEVEL:-INFO}"
+    command: ["uv", "run", "python", "-m", "harnes.operator", "run-loop", "--real", "--interval", "5"]
     stdin_open: true
     tty: true
 
@@ -66,33 +98,36 @@ services:
     container_name: harnes-webui
     restart: unless-stopped
     depends_on:
-      - qdrant
-      - neo4j
-    # Шерим state с агентом через bind-mount.
-    # data — read+write (нужен write для approve/reject/create goal в SQLite).
-    # skills — read-only (управление скиллами вне MVP).
-    # config — read-only (тот же default.yaml что у агента).
+      qdrant:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
     volumes:
+      # data — RW для approve/reject + write commands (web→agent IPC)
       - ./data:/app/data
       - ./config:/app/config:ro
       - ./skills:/app/skills:ro
     environment:
-      # Те же backend-URL'ы что у агента — webui читает из тех же сторов.
-      QDRANT_URL: "http://qdrant:6333"
-      NEO4J_URI: "bolt://neo4j:7687"
-      NEO4J_USER: "neo4j"
-      NEO4J_PASSWORD: "harnes-dev-pw"
-      # LLM нужен только для world model embedder (через Graphiti).
-      LLM_API_BASE: "http://192.168.0.111:8000/v1"
-      LLM_API_KEY: "dummy"
-      LLM_MODEL: "gemma-26b-a4b"
-      # WebUI-специфичное.
+      # Memory backends — read-only access из webui к stores агента
+      MEMORY__QDRANT_URL: "http://qdrant:6333"
+      MEMORY__NEO4J_URI: "bolt://neo4j:7687"
+      MEMORY__NEO4J_USER: "neo4j"
+      MEMORY__NEO4J_PASSWORD: "harnes-dev-pw"
+      # LLM — webui использует через api_memory (search), плюс Graphiti embedder
+      LLM__API_BASE: "${LLM_API_BASE:-http://192.168.0.111:8000/v1}"
+      LLM__API_KEY: "${LLM_API_KEY:-dummy}"
+      LLM__MODEL: "${LLM_MODEL:-gemma-26b-a4b}"
+      EMBEDDINGS__USE_SERVER: "true"
+      EMBEDDINGS__MODEL: "bge-m3"
+      METACYCLE__JOURNAL_DB_PATH: "/app/data/metacycle_journal.db"
+      METACYCLE__COMMANDS_DB_PATH: "/app/data/web_commands.db"
+      # WebUI server — prefix WEBUI_ (свой singleton, не через harnes.config)
       WEBUI_HOST: "0.0.0.0"
       WEBUI_PORT: "8000"
-      WEBUI_LOG_LEVEL: "INFO"
-      LOGGING_LEVEL: "INFO"
+      WEBUI_LOG_LEVEL: "${LOGGING_LEVEL:-INFO}"
+      LOGGING__LEVEL: "${LOGGING_LEVEL:-INFO}"
     ports:
-      # Loopback-only: открыто только локально на хосте.
+      # localhost:8080 → контейнер:8000. Loopback-only — не светим наружу.
       - "127.0.0.1:8080:8000"
 
 volumes:

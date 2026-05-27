@@ -14,31 +14,36 @@ v0 — вертикальный срез в работе.
 
 ## Quick start
 
-Поднять memory-бэкенды:
-
 ```bash
-docker compose up -d qdrant neo4j
+cp .env.example .env       # отредактируй LLM_API_BASE если router не на 192.168.0.111
+docker compose up -d       # qdrant + neo4j + agent (run-loop --real) + webui
+open http://localhost:8080 # admin-консоль (Irida)
 ```
 
-Собрать и запустить агент:
+Логи агента:
 
 ```bash
-docker compose build agent
-docker compose run --rm agent
+docker compose logs -f agent
 ```
 
-Или непрерывно:
+Остановить:
 
 ```bash
-docker compose up agent
+docker compose down        # сохраняет volumes (state)
+docker compose down -v     # снести state (qdrant/neo4j data)
 ```
 
 ## Локальная разработка (без docker)
 
 ```bash
 uv sync
-uv run python scripts/run_agent.py
 uv run pytest
+
+# Smoke агента
+uv run python -m harnes.operator run-loop --stub --max-ticks 3
+
+# UI на localhost:8000
+WEBUI_PORT=8080 uv run python -m harnes.webui
 ```
 
 ## Конфигурация
