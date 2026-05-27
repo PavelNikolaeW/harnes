@@ -65,13 +65,13 @@ class ProceduralStoreConfig(BaseModel):
 
 
 class EmbeddingsConfig(BaseModel):
-    # Граmceful fallback на fastembed реализован в llm/embeddings.py — можно
-    # выставить use_server=true заранее; агент сам переключится на сервер когда
-    # backend будет готов. См. docs/router_roadmap.md R1.
-    use_server: bool = False
-    # Имя как в ll-router (роутер v0.2.0 регистрирует embed-модель как 'bge-m3'
-    # без BAAI/-префикса). Для fastembed-fallback оно неподходит — fastembed
-    # упадёт на curated multilingual model.
+    # BGE-M3 backend на ll-router поднят 2026-05-27; используем server-side
+    # embeddings по умолчанию. Граmceful fallback на fastembed остаётся в
+    # llm/embeddings.py — при server-failure broken-cache на 60s + fastembed.
+    use_server: bool = True
+    # Имя модели в роутере (без BAAI/-префикса). Для fastembed-fallback не
+    # подходит — fastembed упадёт на mpnet (768-dim) и эмбеддинги станут
+    # несовместимы с persistent storage (1024-dim BGE-M3).
     model: str = "bge-m3"
 
 

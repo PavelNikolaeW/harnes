@@ -35,15 +35,16 @@ procedural_store:
   git_auto_tag: false
 
 embeddings:
-  # /v1/embeddings endpoint на ll-router реализован (роутер v0.2.0+), но backend
-  # systemd-unit llama-server-bge-m3 на момент написания не запущен. Когда unit
-  # будет поднят — выставить use_server: true. Граmceful fallback на fastembed
-  # уже работает: при server-failure агент логирует warning и идёт через fastembed,
-  # broken-cache на 60s чтобы не висеть на retry. См. docs/router_roadmap.md R1.
-  use_server: false
-  # Имя модели в роутере (без BAAI/-префикса — роутер регистрирует как 'bge-m3').
-  # Для fastembed-fallback не используется напрямую: fastembed ищет в curated-list
-  # и при отсутствии падает на paraphrase-multilingual-mpnet-base-v2.
+  # /v1/embeddings BGE-M3 backend на ll-router работает (2026-05-27, замер
+  # latency: ~30ms warm на одиночный текст, 1024-dim multilingual). Включён
+  # по умолчанию. Graceful fallback на fastembed остаётся в коде — при
+  # server-failure агент логирует warning и переходит на fastembed на 60s.
+  # См. docs/router_roadmap.md R1.
+  use_server: true
+  # Имя модели в роутере (роутер регистрирует как 'bge-m3' без BAAI/-префикса).
+  # Для fastembed-фолбэка не подходит — fastembed упадёт на curated
+  # multilingual mpnet (768-dim, не совместимо с 1024-dim BGE-M3-эмбеддингами
+  # в персистентных backends → перед сменой моделей нужен dim-probe).
   model: "bge-m3"
 
 logging:
