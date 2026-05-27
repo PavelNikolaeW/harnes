@@ -19,13 +19,16 @@ from harnes.webui.config import get_webui_settings
 from harnes.webui.deps import close_stores, init_stores
 from harnes.webui.routers import (
     api_commands,
+    api_cost,
     api_diff,
     api_eval,
     api_goals,
     api_journal,
     api_llm,
     api_memory,
+    api_reflect,
     api_replay,
+    api_self_gen,
     api_skills,
     api_trajectories,
     pages,
@@ -94,6 +97,9 @@ def create_app() -> FastAPI:
     app.include_router(api_llm.router, prefix="/llm", tags=["llm"])
     app.include_router(api_replay.router, prefix="/replay", tags=["replay"])
     app.include_router(api_diff.router, prefix="/trajectories-diff", tags=["diff"])
+    app.include_router(api_cost.router, prefix="/cost", tags=["cost"])
+    app.include_router(api_self_gen.router, prefix="/self-gen", tags=["self-gen"])
+    app.include_router(api_reflect.router, prefix="/reflect", tags=["reflect"])
 
     return app
 

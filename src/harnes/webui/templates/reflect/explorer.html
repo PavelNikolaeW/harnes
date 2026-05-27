@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}reflect events{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-semibold mb-1">Reflect events</h1>
+<p class="text-soft text-sm mb-6">
+  Триггерный этап метацикла (§ 15). Запускается на verify=FAIL и
+  бампит prompt_template скиллов (<code class="font-mono">skill_versioned</code>)
+  или spawn'ит inquiry-цели (<code class="font-mono">inquiry_spawned</code>).
+  НЕ выполняется каждый тик — пустое окно норма.
+</p>
+
+{# ---------- Stats ---------- #}
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+  {{ m.stat_card('Reflect events', stats.total, 'in window ' + window) }}
+  {{ m.stat_card('skill_versioned', stats.skill_versioned) }}
+  {{ m.stat_card('inquiry_spawned', stats.inquiry_spawned) }}
+  {% if stats.total >= 2 %}
+    {{ m.stat_card('Mean between', stats.mean_between_human, 'avg gap, window-only') }}
+  {% elif stats.last_ts %}
+    {{ m.stat_card('Last reflect', stats.last_ts|relative_time, stats.last_ts|short_dt) }}
+  {% else %}
+    {{ m.stat_card('Last reflect', '—', 'no events in window') }}
+  {% endif %}
+</div>
+
+{# ---------- Window / mode tabs ---------- #}
+<div class="flex flex-wrap gap-4 mb-6 items-center">
+  <div class="flex items-center gap-1">
+    <span class="text-[11px] uppercase text-soft tracking-wide font-mono mr-1">window</span>
+    {% for w in windows %}
+      <a href="/reflect?window={{ w }}&mode={{ mode }}"
+         class="px-3 py-1 font-mono text-xs border rounded
+                {% if w == window %}bg-accent text-cream border-accent{% else %}bg-paper text-soft border-edge hover:bg-cream{% endif %}">
+        {{ w }}
+      </a>
+    {% endfor %}
+  </div>
+
+  <div class="flex items-center gap-1">
+    <span class="text-[11px] uppercase text-soft tracking-wide font-mono mr-1">mode</span>
+    {% for mo in modes %}
+      <a href="/reflect?window={{ window }}&mode={{ mo }}"
+         class="px-3 py-1 font-mono text-xs border rounded
+                {% if mo == mode %}bg-accent text-cream border-accent{% else %}bg-paper text-soft border-edge hover:bg-cream{% endif %}">
+        {{ mo }}
+      </a>
+    {% endfor %}
+  </div>
+</div>
+
+{# ---------- Timeline ---------- #}
+{{ m.section_title('Timeline', items|length|string + ' event(s), newest first') }}
+
+{% if items %}
+  <ol class="space-y-3">
+    {% for it in items %}
+      {% if it.mode == 'skill_versioned' %}
+        {% set border_class = 'border-violet-400 bg-violet-50/40' %}
+      {% else %}
+        {% set border_class = 'border-sky-400 bg-sky-50/40' %}
+      {% endif %}
+      <li class="border-l-4 {{ border_class }} pl-4 py-3 border-y border-r border-edge rounded">
+        <div class="flex items-baseline gap-3 text-xs font-mono text-soft mb-2 flex-wrap">
+          <span class="px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide
+                       {% if it.mode == 'skill_versioned' %}bg-violet-100 text-violet-900 border border-violet-200{% else %}bg-sky-100 text-sky-900 border border-sky-200{% endif %}">
+            {{ it.mode }}
+          </span>
+          <span title="{{ it.timestamp|short_dt }}">{{ it.timestamp|relative_time }}</span>
+          <span class="px-1.5 py-0.5 rounded bg-paper border border-edge text-ink">tick {{ it.tick_id }}</span>
+        </div>
+
+        {% if it.mode == 'skill_versioned' %}
+          <div class="text-sm font-mono mb-1">
+            {% if it.skill %}
+              <a href="/skills/{{ it.skill.id }}" class="text-link hover:underline">{{ it.skill.name }}</a>
+              <span class="text-soft">·</span>
+              <code class="text-soft">{{ it.skill.id }}</code>
+            {% elif it.skill_id %}
+              <a href="/skills/{{ it.skill_id }}" class="text-link hover:underline">{{ it.skill_id }}</a>
+              <span class="text-soft text-xs">(not in registry)</span>
+            {% else %}
+              <span class="text-soft">(unknown skill)</span>
+            {% endif %}
+
+            {% if it.from_version or it.to_version %}
+              <span class="ml-2">
+                v{{ it.from_version or '?' }}
+                <span class="text-accent">→</span>
+                v{{ it.to_version or '?' }}
+              </span>
+            {% endif %}
+          </div>
+
+          {% if it.rationale %}
+            <div class="text-sm text-ink mt-1 leading-snug">{{ it.rationale }}</div>
+          {% endif %}
+
+        {% else %}
+          <div class="text-sm mb-1">
+            <span class="text-soft text-xs font-mono mr-1">spawned inquiry:</span>
+            {% if it.goal_id %}
+              <a href="/goals/{{ it.goal_id }}" class="text-link hover:underline">{{ it.description }}</a>
+            {% else %}
+              <span>{{ it.description }}</span>
+            {% endif %}
+          </div>
+
+          <div class="text-xs font-mono text-soft mt-1 flex flex-wrap gap-3">
+            {% if it.goal_id %}
+              <span>id: <code>{{ it.goal_id[:8] }}</code></span>
+            {% endif %}
+            {% if it.parent_goal_id %}
+              <span>parent:
+                <a href="/goals/{{ it.parent_goal_id }}" class="text-link hover:underline">
+                  <code>{{ it.parent_goal_id[:8] }}</code>
+                </a>
+              </span>
+            {% endif %}
+            {% if it.goal and it.goal.metadata and it.goal.metadata.rationale %}
+              <span class="text-ink italic">{{ it.goal.metadata.rationale }}</span>
+            {% endif %}
+          </div>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ol>
+{% else %}
+  {{ m.empty_state('Нет reflect-событий в окне ' + window + '. Reflect — триггерный, не каждый тик. Если 0 — значит не было verify=FAIL (или они не привели к bump/spawn).') }}
+{% endif %}
+
+{# ---------- Триггеры (§ 15) ---------- #}
+{% call m.decision_box('Триггеры reflect (§ 15 архитектуры)') %}
+<ul class="text-sm space-y-1">
+  <li><strong>event:fail</strong> — verify=FAIL: <code class="font-mono">failure_analysis</code> bump'ит prompt_template скилла, <code class="font-mono">inquiry_from_failure</code> spawn'ит inquiry при knowledge-gap. <em>Реализовано.</em></li>
+  <li><strong>event:budget_exceeded</strong> — будущий <code class="font-mono">budget_postmortem</code>: разбор причин перерасхода токенов/времени.</li>
+  <li><strong>event:prediction_divergence</strong> — будущий <code class="font-mono">world_recalibration</code>: world-model дала прогноз, факт разошёлся → коррекция.</li>
+  <li><strong>event:novelty</strong> — будущий <code class="font-mono">batch_consolidation</code>: новый паттерн в эпизодической памяти → семантическое обобщение.</li>
+  <li><strong>volume</strong> — каждые N успешных тиков → батч-консолидация.</li>
+  <li><strong>schedule</strong> — будущий <code class="font-mono">periodic_review</code>: расписанный самоаудит (даже без триггеров).</li>
+</ul>
+{% endcall %}
+{% endblock %}

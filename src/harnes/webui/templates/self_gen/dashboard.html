@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}self-generation metrics{% endblock %}
+
+{% block content %}
+<div class="flex items-baseline justify-between mb-2">
+  <h1 class="text-2xl font-semibold">Self-generation metrics</h1>
+  <span class="text-xs text-soft font-mono">
+    window: {{ selected_window }} · bucket: {{ selected_group_by }}
+    {% if cutoff %} · since {{ cutoff|short_dt }}{% endif %}
+  </span>
+</div>
+<p class="text-soft text-sm mb-6">
+  Доля тиков, на которых агент <em>сам</em> поставил себе цель — операционализация автономии.
+  Источники self-spawn: <code class="bg-paper px-1 rounded">standing</code> (реактивный слой),
+  <code class="bg-paper px-1 rounded">reflect</code> (inquiry после verify=FAIL),
+  <code class="bg-paper px-1 rounded">decomposition</code> (parent → child).
+</p>
+
+{# ---------- Window selector (link-tabs) ---------- #}
+<div class="flex flex-wrap items-center gap-4 mb-6">
+  <div class="flex items-center gap-1">
+    <span class="text-[11px] uppercase text-soft tracking-wide font-mono mr-2">window</span>
+    {% for w in all_windows %}
+      <a href="/self-gen?window={{ w }}&group_by={{ selected_group_by }}"
+         class="px-2.5 py-1 text-xs font-mono rounded border
+                {% if w == selected_window %}bg-ink text-cream border-ink
+                {% else %}bg-paper text-link border-edge hover:bg-cream{% endif %}">
+        {{ w }}
+      </a>
+    {% endfor %}
+  </div>
+  <div class="flex items-center gap-1">
+    <span class="text-[11px] uppercase text-soft tracking-wide font-mono mr-2">bucket</span>
+    {% for gb in all_group_by %}
+      <a href="/self-gen?window={{ selected_window }}&group_by={{ gb }}"
+         class="px-2.5 py-1 text-xs font-mono rounded border
+                {% if gb == selected_group_by %}bg-ink text-cream border-ink
+                {% else %}bg-paper text-link border-edge hover:bg-cream{% endif %}">
+        {{ gb }}
+      </a>
+    {% endfor %}
+  </div>
+</div>
+
+{# ---------- Top stat cards ---------- #}
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+  {% if total_ticks == 0 %}
+    {{ m.stat_card('Total ticks', '—', 'окно пустое') }}
+    {{ m.stat_card('Ticks with self-spawn', '—') }}
+    {{ m.stat_card('Total self-spawned goals', '—') }}
+    {{ m.stat_card('Self-generation rate', '—', 'нет данных') }}
+  {% else %}
+    {{ m.stat_card('Total ticks', total_ticks, 'TICK_STARTED в окне') }}
+    {{ m.stat_card('Ticks with self-spawn', ticks_with_self_spawn,
+        '%.1f%% от total' % (ticks_with_self_spawn * 100.0 / total_ticks if total_ticks else 0)) }}
+    {{ m.stat_card('Total self-spawned goals', total_spawned,
+        'GOAL_SPAWNED events') }}
+    <div class="bg-decision border border-accentSoft border-l-4 border-l-accent rounded p-4">
+      <div class="text-[11px] uppercase tracking-wide text-soft">Self-generation rate</div>
+      <div class="text-3xl font-mono font-semibold mt-1 text-accent">{{ '%.1f' % self_gen_rate }}%</div>
+      <div class="text-xs text-soft mt-1">
+        ticks_with_self_spawn / total_ticks
+      </div>
+    </div>
+  {% endif %}
+</div>
+
+{% if truncated %}
+  <div class="border border-amber-300 bg-amber-50 text-amber-900 text-xs font-mono rounded px-3 py-2 mb-4">
+    Достигнут лимит выборки {{ max_fetch }} событий — total_ticks может быть занижен.
+    Сузь window.
+  </div>
+{% endif %}
+
+{% if total_ticks == 0 %}
+  {{ m.empty_state('Нет TICK_STARTED в этом окне. Запусти run-loop в agent-контейнере либо расширь window.') }}
+{% else %}
+
+  {# ---------- Bucket chart (inline SVG) ---------- #}
+  {{ m.section_title('Spawn rate over time', selected_group_by + ' buckets · ' + buckets|length|string + ' slots') }}
+
+  <div class="border border-edge rounded bg-paper/40 p-4 mb-6">
+    {% set chart_w = 600 %}
+    {% set chart_h = 140 %}
+    {% set n = buckets|length %}
+    {% set bw = (chart_w / n) if n > 0 else 0 %}
+    {% set bar_pad = 1 %}
+    <svg viewBox="0 0 {{ chart_w }} {{ chart_h }}" width="100%" height="{{ chart_h }}"
+         preserveAspectRatio="none" class="block">
+      {# baseline #}
+      <line x1="0" y1="{{ chart_h - 0.5 }}" x2="{{ chart_w }}" y2="{{ chart_h - 0.5 }}"
+            stroke="#d8d4cc" stroke-width="1"/>
+      {% for b in buckets %}
+        {% set h = (b.count * (chart_h - 4) / max_bucket_count) if max_bucket_count > 0 else 0 %}
+        {% set x = loop.index0 * bw %}
+        {% set y = chart_h - h %}
+        {% if b.count > 0 %}
+          <rect x="{{ '%.2f' % (x + bar_pad) }}" y="{{ '%.2f' % y }}"
+                width="{{ '%.2f' % (bw - 2 * bar_pad if bw > 2 * bar_pad else bw) }}"
+                height="{{ '%.2f' % h }}"
+                fill="#664433">
+            <title>{{ b.iso }} — {{ b.count }} spawn{% if b.count != 1 %}s{% endif %}</title>
+          </rect>
+        {% endif %}
+      {% endfor %}
+    </svg>
+    <div class="flex justify-between text-[10px] font-mono text-soft mt-1">
+      {% if buckets %}
+        <span>{{ buckets[0].label }}</span>
+        {% if buckets|length > 2 %}
+          <span>{{ buckets[(buckets|length // 2)].label }}</span>
+        {% endif %}
+        <span>{{ buckets[-1].label }}</span>
+      {% endif %}
+    </div>
+    <div class="text-[11px] text-soft font-mono mt-2">
+      max in bucket: {{ max_bucket_count }} · scale: linear
+    </div>
+  </div>
+
+  {# ---------- By originator ---------- #}
+  {{ m.section_title('By originator', 'top ' + originator_rows|length|string) }}
+  {% if originator_rows %}
+    <div class="border border-edge rounded overflow-hidden mb-6">
+      <table class="w-full text-sm">
+        <thead class="bg-paper text-soft">
+          <tr>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">originator</th>
+            <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">count</th>
+            <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">% of spawn</th>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">recent descriptions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in originator_rows %}
+            <tr class="border-t border-edge align-top">
+              <td class="px-3 py-2 font-mono text-xs text-accent">{{ r.originator }}</td>
+              <td class="px-3 py-2 font-mono text-right">{{ r.count }}</td>
+              <td class="px-3 py-2 font-mono text-right text-soft">{{ '%.1f' % r.pct }}%</td>
+              <td class="px-3 py-2 text-xs text-soft">
+                {% if r.examples %}
+                  <ul class="space-y-0.5">
+                    {% for ex in r.examples %}
+                      <li class="font-mono">· {{ ex }}{% if ex|length >= 120 %}…{% endif %}</li>
+                    {% endfor %}
+                  </ul>
+                {% else %}
+                  <span class="text-soft italic">—</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    {{ m.empty_state('Нет GOAL_SPAWNED событий в окне.') }}
+  {% endif %}
+
+  {# ---------- By goal_class (horizontal CSS bars) ---------- #}
+  {{ m.section_title('By goal_class') }}
+  {% if goal_class_rows %}
+    <div class="border border-edge rounded p-4 mb-6 bg-paper/40">
+      {% for r in goal_class_rows %}
+        <div class="flex items-center gap-2 mb-1.5">
+          <span class="font-mono text-xs w-28 inline-block">{{ r.goal_class }}</span>
+          <div class="flex-1 bg-cream border border-edge rounded h-5 overflow-hidden relative">
+            <div class="h-full bg-accent/80 border-l-4 border-accent"
+                 style="width: {{ '%.1f' % r.bar_pct }}%;"></div>
+          </div>
+          <span class="font-mono text-xs text-right w-12">{{ r.count }}</span>
+          <span class="font-mono text-xs text-soft w-14 text-right">{{ '%.1f' % r.pct }}%</span>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    {{ m.empty_state('Нет данных по goal_class.') }}
+  {% endif %}
+
+  {# ---------- Recent self-spawned goals ---------- #}
+  {{ m.section_title('Recent self-spawned goals', 'last ' + recent_rows|length|string) }}
+  {% if recent_rows %}
+    <div class="border border-edge rounded overflow-hidden mb-6">
+      <table class="w-full text-sm">
+        <thead class="bg-paper text-soft">
+          <tr>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">timestamp</th>
+            <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">tick</th>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">originator</th>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">goal_class</th>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">description</th>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">current status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in recent_rows %}
+            <tr class="border-t border-edge">
+              <td class="px-3 py-1.5 font-mono text-xs text-soft whitespace-nowrap">{{ r.timestamp|short_dt }}</td>
+              <td class="px-3 py-1.5 font-mono text-right">{{ r.tick_id }}</td>
+              <td class="px-3 py-1.5 font-mono text-xs text-accent">{{ r.originator }}</td>
+              <td class="px-3 py-1.5 font-mono text-xs">{{ r.goal_class }}</td>
+              <td class="px-3 py-1.5 text-xs">
+                {% if r.goal_id %}
+                  <a href="/goals/{{ r.goal_id }}"
+                     class="text-link hover:underline font-mono"
+                     title="{{ r.description }}">
+                    {{ r.goal_id_short }}…
+                  </a>
+                  <span class="text-soft ml-2">{{ r.description[:80] }}{% if r.description|length > 80 %}…{% endif %}</span>
+                {% else %}
+                  <span class="text-soft font-mono">— no id —</span>
+                  <span class="text-soft ml-2">{{ r.description[:80] }}{% if r.description|length > 80 %}…{% endif %}</span>
+                {% endif %}
+              </td>
+              <td class="px-3 py-1.5">
+                {% if r.current_status %}
+                  {{ m.badge(r.current_status, r.current_status) }}
+                {% elif r.goal_id %}
+                  {{ m.badge('gone', extra_class='bg-stone-100 text-stone-600 border-stone-300') }}
+                {% else %}
+                  <span class="text-soft font-mono text-[11px]">—</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    {{ m.empty_state('Нет self-spawned целей в окне.') }}
+  {% endif %}
+
+{% endif %}
+
+{# ---------- Decision-box / research framing ---------- #}
+{% call m.decision_box('Метрика: self-generation rate') %}
+  <p class="text-sm leading-snug">
+    <code class="bg-paper px-1 rounded">self-generation rate = ticks_with_self_spawn / total_ticks</code> —
+    операционализация <em>автономии</em> в смысле § 1 архитектуры
+    ("локус и зернистость контроля"). Высокая доля self-generated целей означает,
+    что инициатива чаще на стороне агента, а не оператора.
+  </p>
+  <p class="text-xs text-soft font-mono mt-2 leading-snug">
+    Источник — append-only <code>TickJournal</code> (<code>TickEventType.GOAL_SPAWNED</code>).
+    Знаменатель — <code>TICK_STARTED</code> в том же окне.
+    «gone» в статусе означает, что goal удалён из <code>GoalRepository</code> (был чистый прогон
+    или другая ретенция) — событие в journal сохраняется.
+  </p>
+{% endcall %}
+
+{% endblock %}

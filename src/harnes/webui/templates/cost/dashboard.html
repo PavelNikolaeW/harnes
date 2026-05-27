@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}cost dashboard{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-semibold mb-1">
+  Cost dashboard
+  <span class="text-soft font-normal text-base font-mono">— window {{ selected_window }} · group_by {{ selected_group_by }}</span>
+</h1>
+<p class="text-soft text-sm mb-4">
+  Где утекают токены и латентность. Источник — episodic store (LanceDB), агрегация по LLM-шагам
+  (<code>thought</code>/<code>action</code>/<code>critique</code>/<code>plan</code>).
+  Используй для поиска регрессий между релизами skill'ов и моделей.
+</p>
+
+{# ---------- Filters (server-side, через query params) ---------- #}
+<div class="flex flex-wrap gap-4 items-center mb-6 p-3 bg-paper border border-edge rounded">
+  <div class="text-[11px] uppercase text-soft tracking-wide font-mono">window</div>
+  <div class="flex gap-1">
+    {% for w in window_options %}
+      <a href="/cost?window={{ w }}&group_by={{ selected_group_by }}"
+         class="px-2 py-1 text-xs font-mono rounded border
+                {% if w == selected_window %}bg-ink text-cream border-ink{% else %}bg-cream text-link border-edge hover:border-edgex{% endif %}">
+        {{ w }}
+      </a>
+    {% endfor %}
+  </div>
+
+  <div class="text-[11px] uppercase text-soft tracking-wide font-mono ml-4">group_by</div>
+  <div class="flex gap-1">
+    {% for gb in group_by_options %}
+      <a href="/cost?window={{ selected_window }}&group_by={{ gb }}"
+         class="px-2 py-1 text-xs font-mono rounded border
+                {% if gb == selected_group_by %}bg-ink text-cream border-ink{% else %}bg-cream text-link border-edge hover:border-edgex{% endif %}">
+        {{ gb }}
+      </a>
+    {% endfor %}
+  </div>
+
+  <div class="ml-auto text-[11px] font-mono text-soft">
+    {% if cutoff %}from {{ cutoff|short_dt }} UTC{% else %}all-time{% endif %}
+    → {{ now|short_dt }} UTC
+  </div>
+</div>
+
+{% if total_calls == 0 %}
+  {{ m.empty_state('Нет LLM-шагов в выбранном окне. Расширь window до 7d/30d/all, либо запусти ReAct: `docker compose run --rm agent` / `uv run python -m harnes.operator run-tick --real`.') }}
+{% else %}
+
+{# ---------- Top stat cards ---------- #}
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+  {{ m.stat_card('Total tokens', '%d' % total_tokens, '%d call%s' % (total_calls, '' if total_calls == 1 else 's')) }}
+  {{ m.stat_card('Total calls',  total_calls, '%d trajectories' % unique_trajs) }}
+  {{ m.stat_card('Latency p50 / p95', '%.2fs / %.2fs' % (p50_latency, p95_latency), '%.1fs total wall-clock' % total_latency) }}
+  {{ m.stat_card('Unique goals', unique_goals) }}
+</div>
+
+{# ---------- Bucket time-series chart (inline SVG) ---------- #}
+{# ширина 600px, высота bars 140px + 18px подписи; pad справа/слева 4px.       #}
+{# Слотов всегда |bucket_rows|; bars c height пропорционально tokens.          #}
+<div class="border border-edge rounded p-4 mb-6 bg-paper/40">
+  <div class="flex items-baseline justify-between mb-3">
+    <div class="text-[11px] uppercase tracking-wide text-soft font-mono">
+      Tokens per {{ selected_group_by }}
+    </div>
+    <div class="text-[11px] font-mono text-soft">
+      {{ bucket_rows|length }} bucket{{ '' if bucket_rows|length == 1 else 's' }}
+      · max {{ max_bucket_tokens }} tok
+    </div>
+  </div>
+
+  {% if bucket_rows %}
+    {# Width slot вычисляется в Tailwind через style — SVG масштабируется.    #}
+    {% set chart_w = 600 %}
+    {% set chart_h = 140 %}
+    {% set n = bucket_rows|length %}
+    {# slot ширина = chart_w / n; bar = 80% slot ширины (gap 20%).             #}
+    <div class="overflow-x-auto">
+      <svg width="{{ chart_w }}" height="{{ chart_h + 22 }}" viewBox="0 0 {{ chart_w }} {{ chart_h + 22 }}"
+           class="block" role="img" aria-label="tokens per {{ selected_group_by }}">
+        {# baseline #}
+        <line x1="0" y1="{{ chart_h }}" x2="{{ chart_w }}" y2="{{ chart_h }}"
+              stroke="#d8d4cc" stroke-width="1"/>
+        {% for b in bucket_rows %}
+          {% set slot = chart_w / n %}
+          {% set bar_w = (slot * 0.8)|round(2) %}
+          {% set bar_x = (loop.index0 * slot + slot * 0.1)|round(2) %}
+          {% if max_bucket_tokens > 0 %}
+            {% set bar_h = (b.tokens * chart_h / max_bucket_tokens)|round(2) %}
+          {% else %}
+            {% set bar_h = 0 %}
+          {% endif %}
+          {% set bar_y = chart_h - bar_h %}
+          <g>
+            {# Невидимый widerect для tooltip hit-area: hover показывает <title>. #}
+            <rect x="{{ (loop.index0 * slot)|round(2) }}" y="0"
+                  width="{{ slot|round(2) }}" height="{{ chart_h }}"
+                  fill="transparent">
+              <title>{{ b.label }} · {{ b.tokens }} tok · {{ b.calls }} call{{ '' if b.calls == 1 else 's' }} · {{ '%.1f' % b.latency }}s</title>
+            </rect>
+            {% if bar_h > 0 %}
+              <rect x="{{ bar_x }}" y="{{ bar_y }}"
+                    width="{{ bar_w }}" height="{{ bar_h }}"
+                    fill="#664433" opacity="0.85">
+                <title>{{ b.label }} · {{ b.tokens }} tok · {{ b.calls }} call{{ '' if b.calls == 1 else 's' }}</title>
+              </rect>
+            {% else %}
+              {# Empty bucket — рисуем 2px риску чтобы был ощутимый слот.    #}
+              <rect x="{{ bar_x }}" y="{{ chart_h - 1 }}"
+                    width="{{ bar_w }}" height="1"
+                    fill="#d8d4cc"/>
+            {% endif %}
+          </g>
+        {% endfor %}
+        {# X-axis labels: рисуем только каждый k-тый чтобы не наезжали.       #}
+        {% set label_every = ((n / 12)|int) %}
+        {% if label_every < 1 %}{% set label_every = 1 %}{% endif %}
+        {% for b in bucket_rows %}
+          {% if loop.index0 % label_every == 0 or loop.last %}
+            {% set slot = chart_w / n %}
+            {% set tx = (loop.index0 * slot + slot * 0.5)|round(2) %}
+            <text x="{{ tx }}" y="{{ chart_h + 14 }}"
+                  font-size="9" font-family="SF Mono,Menlo,monospace"
+                  fill="#555" text-anchor="middle">{{ b.label }}</text>
+          {% endif %}
+        {% endfor %}
+      </svg>
+    </div>
+  {% endif %}
+</div>
+
+{# ---------- By step_type — горизонтальные CSS bars (как в llm/list.html) -- #}
+<div class="border border-edge rounded p-4 mb-6 bg-paper/40">
+  <div class="text-[11px] uppercase tracking-wide text-soft font-mono mb-3">By step_type</div>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+    <div>
+      <div class="text-[11px] uppercase text-soft font-mono mb-2">total tokens</div>
+      {% for r in step_rows %}
+        {% if r.tokens > 0 %}
+          <div class="flex items-center gap-2 mb-1.5">
+            <span class="font-mono text-xs w-20 inline-block">{{ r.step_type }}</span>
+            <div class="flex-1 bg-cream border border-edge rounded h-5 overflow-hidden relative">
+              <div class="h-full {{ r.step_type|step_color }} border-l-4"
+                   style="width: {{ ((r.tokens * 100.0 / max_step_tokens)|round(1)) if max_step_tokens else 0 }}%;"></div>
+            </div>
+            <span class="font-mono text-xs text-right w-20">{{ r.tokens }}</span>
+          </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+    <div>
+      <div class="text-[11px] uppercase text-soft font-mono mb-2">calls</div>
+      {% for r in step_rows %}
+        {% if r.calls > 0 %}
+          <div class="flex items-center gap-2 mb-1.5">
+            <span class="font-mono text-xs w-20 inline-block">{{ r.step_type }}</span>
+            <div class="flex-1 bg-cream border border-edge rounded h-5 overflow-hidden relative">
+              <div class="h-full {{ r.step_type|step_color }} border-l-4"
+                   style="width: {{ ((r.calls * 100.0 / max_step_calls)|round(1)) if max_step_calls else 0 }}%;"></div>
+            </div>
+            <span class="font-mono text-xs text-right w-16">{{ r.calls }} · {{ '%.2fs' % r.mean_latency }}</span>
+          </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+{# ---------- By skill_id — table ---------- #}
+<div class="mb-6">
+  {{ m.section_title('By skill', '%d skill%s · sorted by tokens desc' % (skill_rows|length, '' if skill_rows|length == 1 else 's')) }}
+  {% if skill_rows %}
+    <div class="border border-edge rounded overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-paper text-soft">
+          <tr>
+            <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">skill</th>
+            <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">calls</th>
+            <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">total tokens</th>
+            <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">mean tok/call</th>
+            <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">mean latency</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in skill_rows %}
+            <tr class="border-t border-edge hover:bg-paper/60">
+              <td class="px-3 py-2 font-mono text-xs">
+                {% if r.skill_id == 'unknown' %}
+                  <span class="text-soft italic">unknown</span>
+                {% else %}
+                  <a href="/skills/{{ r.skill_id }}" class="text-link hover:underline">{{ r.skill_id }}</a>
+                {% endif %}
+              </td>
+              <td class="px-3 py-2 font-mono text-right">{{ r.calls }}</td>
+              <td class="px-3 py-2 font-mono text-right">{{ r.tokens }}</td>
+              <td class="px-3 py-2 font-mono text-right">{{ '%.0f' % r.mean_tokens }}</td>
+              <td class="px-3 py-2 font-mono text-right">{{ '%.2fs' % r.mean_latency }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</div>
+
+{# ---------- Top 10 goals by cost ---------- #}
+<div class="mb-6">
+  {{ m.section_title('Top 10 goals by tokens', 'sorted desc · join по trajectory.goal_id') }}
+  {% if top_goals %}
+    <div class="border border-edge rounded overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-paper text-soft">
+          <tr>
+            <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">goal</th>
+            <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">description</th>
+            <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">total tokens</th>
+            <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">calls</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for g in top_goals %}
+            <tr class="border-t border-edge hover:bg-paper/60">
+              <td class="px-3 py-2 font-mono text-xs">
+                <a href="/goals/{{ g.goal_id }}" class="text-link hover:underline">{{ g.goal_id[:8] }}…</a>
+              </td>
+              <td class="px-3 py-2 text-xs text-soft">
+                {% if g.description %}{{ g.description }}{% else %}<span class="italic">— (goal не найден)</span>{% endif %}
+              </td>
+              <td class="px-3 py-2 font-mono text-right">{{ g.tokens }}</td>
+              <td class="px-3 py-2 font-mono text-right">{{ g.calls }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</div>
+
+{% endif %}
+{% endblock %}
