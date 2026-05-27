@@ -106,17 +106,39 @@ def on_alert_observation(
 def on_prev_verify_failure(
     ctx: StandingContext, parent: Goal, repo: GoalRepository
 ) -> Goal | None:
-    """Fires когда в репо есть FAILED цель с приоритетом >= threshold."""
-    threshold = (
-        parent.metadata.get("priority_threshold", 1)
-        if isinstance(parent.metadata, dict)
-        else 1
-    )
+    """Fires когда в репо есть FAILED цель с приоритетом >= threshold.
+
+    Дедуп per-target: для одной и той же исходной FAILED-цели спавнится не более
+    `max_diagnoses_per_target` (default=1) diagnose-inquiry — независимо от их
+    финального статуса. Иначе уже-диагностированный (но всё ещё FAILED) target
+    запускал бесконечный feedback loop на каждом тике после закрытия предыдущего
+    diagnose.
+    """
+    meta = parent.metadata if isinstance(parent.metadata, dict) else {}
+    threshold = meta.get("priority_threshold", 1)
+    max_per_target = meta.get("max_diagnoses_per_target", 1)
+
     failed = repo.list_by_status(GoalStatus.FAILED)
     relevant = [g for g in failed if g.priority >= threshold and g.parent_id != parent.id]
     if not relevant:
         return None
-    # Самая свежая failed-цель
+
+    # Подсчёт уже-выпущенных diagnoses по failed_goal_id (в любом статусе).
+    diagnose_counts: dict[str, int] = {}
+    for child in repo.list_children(parent.id):
+        if not isinstance(child.metadata, dict):
+            continue
+        fgid = child.metadata.get("failed_goal_id")
+        if fgid:
+            diagnose_counts[fgid] = diagnose_counts.get(fgid, 0) + 1
+
+    relevant = [
+        g for g in relevant if diagnose_counts.get(str(g.id), 0) < max_per_target
+    ]
+    if not relevant:
+        return None
+
+    # Самая свежая failed-цель из ещё-не-диагностированных.
     most_recent = max(relevant, key=lambda g: g.updated_at)
     return Goal(
         description=f"Diagnose recent failure: {most_recent.description}",

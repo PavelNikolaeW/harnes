@@ -173,6 +173,128 @@ def test_failure_policy_ignores_own_children(repo: GoalRepository) -> None:
     assert on_prev_verify_failure(ctx, parent, repo) is None
 
 
+def test_no_duplicate_diagnose_on_same_failed_goal(repo: GoalRepository) -> None:
+    """Regression: за N тиков на одну FAILED-цель спавнится ровно 1 diagnose.
+
+    Эмпирически за 80 тиков run-loop --real спавнило 76 одинаковых
+    diagnose-inquiry на той же исходной FAILED-цели — runaway loop из-за того
+    что _has_active_child проверяет только pending/active, а после перевода
+    diagnose в DONE путь снова открывался.
+    """
+    parent = _make_standing("on_prev_verify_failure", priority_threshold=2)
+    repo.create(parent)
+
+    failed = Goal(
+        description="atlantis population lookup",
+        goal_class=GoalClass.TASK,
+        predicate_of_success=JudgePredicate(criterion="x"),
+        priority=3,
+        status=GoalStatus.FAILED,
+        origin=Origin.OPERATOR,
+        originator="test",
+    )
+    repo.create(failed)
+
+    # 10 тиков; после каждого тика «завершаем» спавнённого ребёнка как DONE,
+    # имитируя реактивный цикл, который и был источником бага.
+    for tick in range(10):
+        ctx = StandingContext(
+            tick_id=tick, focus=FocusFrame(), has_active_goal_now=False
+        )
+        check_standing_goals(ctx, repo)
+        for child in repo.list_children(parent.id):
+            if child.status != GoalStatus.DONE:
+                child.status = GoalStatus.DONE
+                repo.update(child)
+
+    inquiries = [
+        c for c in repo.list_children(parent.id) if c.goal_class == GoalClass.INQUIRY
+    ]
+    assert len(inquiries) == 1, f"expected 1 diagnose, got {len(inquiries)}"
+    assert inquiries[0].metadata["failed_goal_id"] == str(failed.id)
+
+
+def test_failure_policy_picks_next_failed_after_first_diagnosed(
+    repo: GoalRepository,
+) -> None:
+    """Дедуп per-target не блокирует diagnose других FAILED-целей."""
+    parent = _make_standing("on_prev_verify_failure", priority_threshold=2)
+    repo.create(parent)
+
+    f1 = Goal(
+        description="first failure",
+        goal_class=GoalClass.TASK,
+        predicate_of_success=JudgePredicate(criterion="x"),
+        priority=3,
+        status=GoalStatus.FAILED,
+        origin=Origin.OPERATOR,
+        originator="test",
+    )
+    repo.create(f1)
+
+    ctx = StandingContext(tick_id=0, focus=FocusFrame(), has_active_goal_now=False)
+    spawned1 = check_standing_goals(ctx, repo)
+    assert len(spawned1) == 1
+    assert spawned1[0].metadata["failed_goal_id"] == str(f1.id)
+
+    diagnose1 = spawned1[0]
+    diagnose1.status = GoalStatus.DONE
+    repo.update(diagnose1)
+
+    f2 = Goal(
+        description="second failure",
+        goal_class=GoalClass.TASK,
+        predicate_of_success=JudgePredicate(criterion="x"),
+        priority=3,
+        status=GoalStatus.FAILED,
+        origin=Origin.OPERATOR,
+        originator="test",
+    )
+    repo.create(f2)
+
+    spawned2 = check_standing_goals(ctx, repo)
+    assert len(spawned2) == 1
+    assert spawned2[0].metadata["failed_goal_id"] == str(f2.id)
+
+
+def test_failure_policy_respects_max_diagnoses_per_target(
+    repo: GoalRepository,
+) -> None:
+    """max_diagnoses_per_target поднимает лимит дедупа per-target."""
+    parent = _make_standing(
+        "on_prev_verify_failure",
+        priority_threshold=2,
+        max_diagnoses_per_target=3,
+    )
+    repo.create(parent)
+
+    failed = Goal(
+        description="repeat-me-three-times",
+        goal_class=GoalClass.TASK,
+        predicate_of_success=JudgePredicate(criterion="x"),
+        priority=3,
+        status=GoalStatus.FAILED,
+        origin=Origin.OPERATOR,
+        originator="test",
+    )
+    repo.create(failed)
+
+    for tick in range(10):
+        ctx = StandingContext(
+            tick_id=tick, focus=FocusFrame(), has_active_goal_now=False
+        )
+        check_standing_goals(ctx, repo)
+        for child in repo.list_children(parent.id):
+            if child.status != GoalStatus.DONE:
+                child.status = GoalStatus.DONE
+                repo.update(child)
+
+    inquiries = [
+        c for c in repo.list_children(parent.id) if c.goal_class == GoalClass.INQUIRY
+    ]
+    assert len(inquiries) == 3
+
+
 # ---------- check_standing_goals dispatcher ----------
 
 
