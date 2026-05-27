@@ -712,7 +712,18 @@ def run_loop(
                 continue
 
             if tick_journal is not None:
-                tick_journal.append(tick_id, TickEventType.TICK_STARTED, {})
+                # Snapshot очереди на момент старта тика — полезно для UI
+                # live-метрик "что было в pending в этот момент".
+                try:
+                    pending_count = len(repo.list_by_status(GoalStatus.PENDING))
+                    active_count = len(repo.list_by_status(GoalStatus.ACTIVE))
+                except Exception:  # noqa: BLE001 — journal не должен валить loop
+                    pending_count = active_count = -1
+                tick_journal.append(
+                    tick_id,
+                    TickEventType.TICK_STARTED,
+                    {"pending": pending_count, "active": active_count},
+                )
 
             try:
                 state = run_tick(
@@ -772,7 +783,11 @@ def run_loop(
                 idle_count += 1
                 log.debug("metacycle.loop.idle_tick", tick=tick_id)
                 if tick_journal is not None:
-                    tick_journal.append(tick_id, TickEventType.TICK_IDLE, {})
+                    # Сейчас единственная причина idle — нет pending. На будущее
+                    # сюда лягут "paused_via_webui", "waiting_external_signal" и др.
+                    tick_journal.append(
+                        tick_id, TickEventType.TICK_IDLE, {"reason": "no_pending"}
+                    )
             else:
                 processed += 1
                 verdict = state.verdict.status.value if state.verdict else "none"
