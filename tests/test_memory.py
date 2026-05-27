@@ -201,6 +201,112 @@ def test_router_episodic_recall_falls_back_to_recency_for_stopword_query(
     assert len(bundle.episodic) == 2
 
 
+# ---------- Vector search (BGE-M3 ANN) ----------
+
+
+def test_episodic_vector_search_finds_semantic_match(
+    episodic: EpisodicStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mock embeddings: семантически близкие тексты → одинаковые векторы.
+    Vector поиск должен возвращать шаг по тематическому матчу, не точному слову."""
+    def fake_embed(texts):
+        out = []
+        for t in texts:
+            tl = t.lower()
+            if "compute" in tl or "calc" in tl or "arithmetic" in tl or "multiplied" in tl:
+                v = [1.0] + [0.0] * 1023
+            elif "file" in tl:
+                v = [0.0, 1.0] + [0.0] * 1022
+            else:
+                v = [0.0] * 1024
+                v[2] = 1.0
+            out.append(v)
+        return out
+
+    from harnes.llm import embeddings as embeddings_mod
+    monkeypatch.setattr(embeddings_mod, "embed", fake_embed)
+
+    target = _make_trajectory_with_thought("computed 7 multiplied by 8 = 56")
+    episodic.write_trajectory(target)
+    for _ in range(5):
+        noise = _make_trajectory_with_thought("read file /tmp/x.txt")
+        episodic.write_trajectory(noise)
+
+    hits = episodic.search_steps_by_vector(query="arithmetic operation result", limit=3)
+    assert hits, "vector search should find semantically-similar step"
+    assert hits[0]["trajectory_id"] == str(target.id)
+
+
+def test_episodic_vector_search_returns_empty_when_no_embeddings(
+    episodic: EpisodicStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Если embeddings table пустая (никто не писал) — vector search возвращает []."""
+    def fake_embed(texts):
+        return [[0.5] * 1024 for _ in texts]
+
+    from harnes.llm import embeddings as embeddings_mod
+    monkeypatch.setattr(embeddings_mod, "embed", fake_embed)
+
+    assert episodic.search_steps_by_vector(query="anything", limit=5) == []
+
+
+def test_episodic_vector_search_handles_dim_mismatch(
+    episodic: EpisodicStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Если embed возвращает не 1024-dim — graceful return [] (не raise)."""
+    def fake_embed(texts):
+        return [[0.5] * 768 for _ in texts]
+
+    from harnes.llm import embeddings as embeddings_mod
+    monkeypatch.setattr(embeddings_mod, "embed", fake_embed)
+
+    assert episodic.search_steps_by_vector(query="anything", limit=5) == []
+
+
+def test_episodic_write_skips_embeddings_on_dim_mismatch(
+    episodic: EpisodicStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fastembed fallback с другой dim — write не падает, embeddings table пустая."""
+    def fake_embed_768(texts):
+        return [[0.1] * 768 for _ in texts]
+
+    from harnes.llm import embeddings as embeddings_mod
+    monkeypatch.setattr(embeddings_mod, "embed", fake_embed_768)
+
+    episodic.write_trajectory(_make_trajectory_with_thought("hello world"))
+
+    # Меняем mock на правильный dim — но в БД ничего нет с этим dim.
+    monkeypatch.setattr(embeddings_mod, "embed", lambda ts: [[0.1] * 1024 for _ in ts])
+    assert episodic.search_steps_by_vector(query="hello", limit=5) == []
+
+
+def test_router_episodic_recall_uses_vector_first(
+    episodic: EpisodicStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recall-chain: vector hit имеет приоритет над keyword/recency."""
+    def fake_embed(texts):
+        out = []
+        for t in texts:
+            v = [0.0] * 1024
+            if "multiplied" in t.lower() or "arithmetic" in t.lower():
+                v[0] = 1.0
+            else:
+                v[500] = 1.0
+            out.append(v)
+        return out
+
+    from harnes.llm import embeddings as embeddings_mod
+    monkeypatch.setattr(embeddings_mod, "embed", fake_embed)
+
+    target = _make_trajectory_with_thought("multiplied 7 by 8")
+    episodic.write_trajectory(target)
+
+    router = MemoryRouter(episodic=episodic)
+    # "arithmetic" семантически близок к "multiplied" — vector chain должен сработать.
+    bundle = router.recall(query="arithmetic problem", k=3)
+    assert any(r.trajectory_id == target.id for r in bundle.episodic)
+
+
 def test_router_skips_missing_backends() -> None:
     """Если бэкенд None — соответствующий тип просто не возвращается."""
     router = MemoryRouter()  # все None

@@ -85,19 +85,31 @@ class MemoryRouter:
         k: int,
         filters: dict[str, Any] | None,
     ) -> list[EpisodicRecord]:
-        """Keyword scoring по terms из query + recency-fallback.
+        """Recall chain: vector ANN → keyword → recency.
+
+        1. ANN: embed(query) → vector search в step_embeddings (BGE-M3).
+           Работает если /v1/embeddings доступен и dim совпадает.
+        2. Keyword: extract_terms(query) → scan content_json (PR #2).
+           Работает всегда, но грубо.
+        3. Recency: последние k шагов. Final fallback для stopword-only query.
 
         Прежняя реализация возвращала recent_steps игнорируя query — на длинном
-        прогоне свежие шаги затирали трейс с ответом, и LLM не находил нужный
-        контекст. ANN/embeddings — follow-up.
+        прогоне свежие шаги вытесняли трейс с ответом.
         """
         import json as _json
 
         assert self.episodic is not None
-        terms = extract_terms(query)
-        rows: list[dict[str, Any]] = []
-        if terms:
-            rows = self.episodic.search_steps_by_terms(terms=terms, limit=k)
+
+        # 1. Vector search (BGE-M3 ANN).
+        rows: list[dict[str, Any]] = self.episodic.search_steps_by_vector(
+            query=query, limit=k
+        )
+        # 2. Keyword fallback.
+        if not rows:
+            terms = extract_terms(query)
+            if terms:
+                rows = self.episodic.search_steps_by_terms(terms=terms, limit=k)
+        # 3. Recency final fallback.
         if not rows:
             rows = self.episodic.recent_steps(limit=k)
         return [
