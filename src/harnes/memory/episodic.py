@@ -8,12 +8,13 @@
 
 LanceDB embedded (no docker), даёт versioned tables c time-travel из коробки.
 
-В v0 embedding-колонки не используются — добавим, когда recall начнёт делать
-семантический поиск по episodic memory.
+Recall: keyword scoring по content_json + recency-fallback. Эмбеддинги/ANN —
+follow-up (нужен dim-probe и решение про server/fastembed model-mismatch).
 """
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,45 @@ log = structlog.get_logger()
 
 TRAJECTORIES_TABLE = "trajectories"
 STEPS_TABLE = "steps"
+
+
+_STOPWORDS = frozenset(
+    {
+        # function words EN
+        "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+        "of", "to", "in", "on", "at", "by", "for", "with", "from", "into",
+        "and", "or", "but", "if", "not",
+        "i", "me", "my", "we", "us", "our", "you", "your", "he", "him", "his",
+        "she", "her", "it", "its", "they", "them", "their",
+        "this", "that", "these", "those",
+        "do", "does", "did", "can", "could", "would", "should", "will",
+        "may", "might", "have", "has", "had",
+        "what", "where", "when", "why", "how", "who", "which",
+        "as", "so", "than", "then",
+        # function words RU
+        "и", "или", "но", "не", "на", "в", "из", "от", "до", "по", "за", "о",
+        "что", "это", "тот", "как", "так", "же", "бы", "ли", "уж",
+    }
+)
+
+
+def extract_terms(query: str, max_terms: int = 8) -> list[str]:
+    """Извлечь content-words из NL-запроса: lowercase, alnum, ≥3 chars, не стопворд.
+
+    На «compute or multiplied» вернёт ['compute', 'multiplied']. На запрос из
+    одних стопвордов («what is it») — пустой список (вызывающий уйдёт в recency).
+    """
+    tokens = re.findall(r"[a-zа-яё0-9]{3,}", query.lower())
+    seen: set[str] = set()
+    out: list[str] = []
+    for t in tokens:
+        if t in _STOPWORDS or t in seen:
+            continue
+        seen.add(t)
+        out.append(t)
+        if len(out) >= max_terms:
+            break
+    return out
 
 
 _trajectory_schema = pa.schema(
@@ -170,6 +210,38 @@ class EpisodicStore:
         rows = self.db.open_table(STEPS_TABLE).search().limit(limit * 10).to_list()
         rows.sort(key=lambda r: r["timestamp"], reverse=True)
         return rows[:limit]
+
+    def search_steps_by_terms(
+        self,
+        terms: list[str],
+        limit: int = 10,
+        scan_limit: int = 5_000,
+    ) -> list[dict[str, Any]]:
+        """Keyword search по content_json. Возвращает шаги, у которых content
+        содержит хотя бы один term (case-insensitive), отсортированные
+        (term-hits desc, timestamp desc).
+
+        Не использует LanceDB filter DSL — простой scan + Python scoring; для
+        десятков-сотен тысяч шагов хватит, дальше нужен FTS/ANN (см. follow-up).
+        Возвращает [], если terms пуст.
+        """
+        if not terms:
+            return []
+        terms_lower = [t.lower() for t in terms if t]
+        rows = (
+            self.db.open_table(STEPS_TABLE).search().limit(scan_limit).to_list()
+        )
+        scored: list[tuple[int, datetime, dict[str, Any]]] = []
+        for r in rows:
+            c = r["content_json"].lower()
+            hits = sum(1 for t in terms_lower if t in c)
+            if hits > 0:
+                scored.append((hits, r["timestamp"], r))
+        # stable sort: by timestamp desc, then by hits desc → final order is
+        # (hits desc, ts desc) since Python sort is stable.
+        scored.sort(key=lambda x: x[1], reverse=True)
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [r for _, _, r in scored[:limit]]
 
     def recent_trajectories(
         self, limit: int = 20, status: str | None = None

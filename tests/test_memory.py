@@ -109,6 +109,49 @@ def test_episodic_persistence_across_reopen(tmp_path: Path) -> None:
     assert meta is not None
 
 
+def _make_trajectory_with_thought(text: str) -> Trajectory:
+    return Trajectory(
+        goal_id=uuid4(),
+        steps=[ThoughtStep(text=text, cost=Cost(tokens=10))],
+        status=TrajectoryStatus.SUCCESS,
+        final_state={"text": text},
+        total_cost=Cost(tokens=10),
+        ended_at=datetime.now(UTC),
+    )
+
+
+def test_episodic_search_by_terms_finds_match_over_recency(
+    episodic: EpisodicStore,
+) -> None:
+    """Шаг с релевантным content должен подниматься выше свежих шумовых шагов."""
+    target = _make_trajectory_with_thought("I multiplied 7 by 8 to get 56")
+    episodic.write_trajectory(target)
+    for _ in range(10):
+        episodic.write_trajectory(_make_trajectory())  # noise: "read the file"
+
+    hits = episodic.search_steps_by_terms(terms=["multiplied"], limit=5)
+    assert hits, "search returned no hits despite a matching step"
+    assert any(r["trajectory_id"] == str(target.id) for r in hits)
+
+
+def test_episodic_search_by_terms_empty_terms_returns_empty(
+    episodic: EpisodicStore,
+) -> None:
+    episodic.write_trajectory(_make_trajectory())
+    assert episodic.search_steps_by_terms(terms=[], limit=5) == []
+
+
+def test_episodic_search_scores_by_hit_count(episodic: EpisodicStore) -> None:
+    """Шаг с двумя term-hits должен ранжироваться выше шага с одним."""
+    one_hit = _make_trajectory_with_thought("just multiplied two numbers")
+    two_hit = _make_trajectory_with_thought("computed and multiplied — the result was 56")
+    episodic.write_trajectory(one_hit)
+    episodic.write_trajectory(two_hit)
+
+    hits = episodic.search_steps_by_terms(terms=["multiplied", "computed"], limit=5)
+    assert hits[0]["trajectory_id"] == str(two_hit.id)
+
+
 # ============================================================
 # MemoryRouter (с моками для semantic/world)
 # ============================================================
@@ -124,6 +167,38 @@ def test_router_recall_episodic_only(episodic: EpisodicStore) -> None:
     assert len(bundle.episodic) > 0
     assert bundle.semantic == []
     assert bundle.world == []
+
+
+def test_router_episodic_recall_uses_query_over_recency(
+    episodic: EpisodicStore,
+) -> None:
+    """Регрессия: prior _recall_episodic игнорировал query и возвращал последние
+    N шагов. После фикса релевантная trajectory всплывает даже если её шаги
+    давно вытолкнуты recency-окном."""
+    target = _make_trajectory_with_thought("computed 7 multiplied by 8 = 56")
+    episodic.write_trajectory(target)
+    for _ in range(10):
+        episodic.write_trajectory(_make_trajectory())  # noise: "read the file"
+
+    router = MemoryRouter(episodic=episodic)
+    bundle = router.recall(query="multiplied number", k=3)
+    assert any(r.trajectory_id == target.id for r in bundle.episodic), (
+        "router did not surface trajectory matching query — "
+        "are we falling back to recency too eagerly?"
+    )
+
+
+def test_router_episodic_recall_falls_back_to_recency_for_stopword_query(
+    episodic: EpisodicStore,
+) -> None:
+    """Запрос из одних стопвордов → terms=[] → fallback на recent_steps."""
+    for _ in range(3):
+        episodic.write_trajectory(_make_trajectory())
+
+    router = MemoryRouter(episodic=episodic)
+    bundle = router.recall(query="what is it", k=2)
+    # 3 trajectories x 3 steps = 9 steps; k=2 -> 2 hits from recency
+    assert len(bundle.episodic) == 2
 
 
 def test_router_skips_missing_backends() -> None:

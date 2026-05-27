@@ -22,7 +22,7 @@ from uuid import UUID
 
 import structlog
 
-from harnes.memory.episodic import EpisodicStore
+from harnes.memory.episodic import EpisodicStore, extract_terms
 from harnes.memory.schema import (
     EpisodicRecord,
     MemoryBundle,
@@ -85,9 +85,21 @@ class MemoryRouter:
         k: int,
         filters: dict[str, Any] | None,
     ) -> list[EpisodicRecord]:
-        """В v0 — recent_steps; semantic search по episodic будет когда добавим эмбеддинги."""
+        """Keyword scoring по terms из query + recency-fallback.
+
+        Прежняя реализация возвращала recent_steps игнорируя query — на длинном
+        прогоне свежие шаги затирали трейс с ответом, и LLM не находил нужный
+        контекст. ANN/embeddings — follow-up.
+        """
+        import json as _json
+
         assert self.episodic is not None
-        rows = self.episodic.recent_steps(limit=k)
+        terms = extract_terms(query)
+        rows: list[dict[str, Any]] = []
+        if terms:
+            rows = self.episodic.search_steps_by_terms(terms=terms, limit=k)
+        if not rows:
+            rows = self.episodic.recent_steps(limit=k)
         return [
             EpisodicRecord(
                 trajectory_id=UUID(r["trajectory_id"]),
@@ -95,7 +107,7 @@ class MemoryRouter:
                 goal_id=UUID(r["goal_id"]),
                 timestamp=r["timestamp"],
                 step_type=r["step_type"],
-                content=__import__("json").loads(r["content_json"]),
+                content=_json.loads(r["content_json"]),
             )
             for r in rows
         ]
