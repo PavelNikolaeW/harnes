@@ -1045,7 +1045,7 @@ def run_eval(
                 task_registry, _store = build_task_registry(chunks)
                 # general.yaml уже содержит recall_memory; dedup для подстраховки.
                 merged_tools = list(dict.fromkeys(
-                    list(general.allowed_tools) + ["recall_memory"]
+                    [*list(general.allowed_tools), "recall_memory"]
                 ))
                 task_skill = general.model_copy(update={"allowed_tools": merged_tools})
                 return run_react(
