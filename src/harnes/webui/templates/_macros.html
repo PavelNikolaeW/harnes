@@ -37,3 +37,16 @@
 {% macro json_block(value, max_h='32em') -%}
   <pre class="bg-paper border border-edge rounded px-3 py-2 text-[12.5px] font-mono leading-snug overflow-auto" style="max-height: {{ max_h }};">{{ value|pretty_json }}</pre>
 {%- endmacro %}
+
+{# HTMX polling-обёртка. Использует hx-select чтобы извлечь свой же блок
+   из full response — без отдельных partial-endpoints. Toggle через
+   `[autoRefresh()]` (см. base.html). `request_url` для GET — обычно current page. #}
+{% macro poll(name, request_url, interval_s=10) -%}
+  <div data-poll-target="{{ name }}"
+       hx-get="{{ request_url }}"
+       hx-trigger="every {{ interval_s }}s [autoRefresh()]"
+       hx-select="[data-poll-target='{{ name }}']"
+       hx-swap="outerHTML">
+    {{ caller() }}
+  </div>
+{%- endmacro %}

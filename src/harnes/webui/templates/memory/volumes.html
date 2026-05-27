@@ -16,6 +16,8 @@
   Consolidation/decay policy ещё open question в § 13 — на v0 ничего не вычищается, рост монотонный.
 </p>
 
+{% call m.poll('volumes-content', request.url, 30) %}
+
 {# ---------- Top stat cards: per-layer totals ---------- #}
 <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
   {# Episodic #}
@@ -278,4 +280,6 @@
     </a>
   </div>
 {% endif %}
+
+{% endcall %}
 {% endblock %}

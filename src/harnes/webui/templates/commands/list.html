@@ -6,7 +6,12 @@
 {% block content %}
 <div class="flex items-baseline justify-between mb-2">
   <h1 class="text-2xl font-semibold">Web→agent commands</h1>
-  <div class="flex items-baseline gap-3 font-mono text-sm">
+  <div data-poll-target="commands-status"
+       class="flex items-baseline gap-3 font-mono text-sm"
+       hx-get="/commands"
+       hx-trigger="every 3s [autoRefresh()]"
+       hx-select="[data-poll-target='commands-status']"
+       hx-swap="outerHTML">
     {% if paused %}
       {{ m.badge('loop paused', 'warning') }}
     {% else %}
@@ -53,49 +58,55 @@
   </div>
 {% endif %}
 
-{{ m.section_title('History', rows|length|string + ' recent') }}
+<div data-poll-target="commands-history"
+     hx-get="/commands"
+     hx-trigger="every 5s [autoRefresh()]"
+     hx-select="[data-poll-target='commands-history']"
+     hx-swap="outerHTML">
+  {{ m.section_title('History', rows|length|string + ' recent') }}
 
-{% if rows %}
-  <div class="border border-edge rounded overflow-hidden">
-    <table class="w-full text-sm">
-      <thead class="bg-paper text-soft">
-        <tr>
-          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">id</th>
-          <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">issued</th>
-          <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">command</th>
-          <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">issuer</th>
-          <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">consumed</th>
-          <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">status</th>
-          <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">result</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in rows %}
-          <tr class="border-t border-edge {% if r.consumed_at is none %}bg-amber-50/40{% endif %}">
-            <td class="px-3 py-2 font-mono text-right">{{ r.id }}</td>
-            <td class="px-3 py-2 font-mono text-xs text-soft">{{ r.issued_at|short_dt }}</td>
-            <td class="px-3 py-2 font-mono text-accent">{{ r.command }}</td>
-            <td class="px-3 py-2 font-mono text-xs text-soft">{{ r.issuer }}</td>
-            <td class="px-3 py-2 font-mono text-xs text-soft">
-              {% if r.consumed_at %}{{ r.consumed_at|relative_time }}{% else %}<em>pending</em>{% endif %}
-            </td>
-            <td class="px-3 py-2">
-              {% if r.consumed_status %}
-                {{ m.badge(r.consumed_status,
-                           'success' if r.consumed_status == 'ok' else ('failed' if r.consumed_status == 'error' else 'warning')) }}
-              {% else %}—{% endif %}
-            </td>
-            <td class="px-3 py-2 font-mono text-xs text-soft">
-              {% if r.result_json and r.result_json != '{}' %}{{ r.result_json }}{% else %}—{% endif %}
-            </td>
+  {% if rows %}
+    <div class="border border-edge rounded overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-paper text-soft">
+          <tr>
+            <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">id</th>
+            <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">issued</th>
+            <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">command</th>
+            <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">issuer</th>
+            <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">consumed</th>
+            <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">status</th>
+            <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">result</th>
           </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-{% else %}
-  {{ m.empty_state('Команд ещё не было.') }}
-{% endif %}
+        </thead>
+        <tbody>
+          {% for r in rows %}
+            <tr class="border-t border-edge {% if r.consumed_at is none %}bg-amber-50/40{% endif %}">
+              <td class="px-3 py-2 font-mono text-right">{{ r.id }}</td>
+              <td class="px-3 py-2 font-mono text-xs text-soft">{{ r.issued_at|short_dt }}</td>
+              <td class="px-3 py-2 font-mono text-accent">{{ r.command }}</td>
+              <td class="px-3 py-2 font-mono text-xs text-soft">{{ r.issuer }}</td>
+              <td class="px-3 py-2 font-mono text-xs text-soft">
+                {% if r.consumed_at %}{{ r.consumed_at|relative_time }}{% else %}<em>pending</em>{% endif %}
+              </td>
+              <td class="px-3 py-2">
+                {% if r.consumed_status %}
+                  {{ m.badge(r.consumed_status,
+                             'success' if r.consumed_status == 'ok' else ('failed' if r.consumed_status == 'error' else 'warning')) }}
+                {% else %}—{% endif %}
+              </td>
+              <td class="px-3 py-2 font-mono text-xs text-soft">
+                {% if r.result_json and r.result_json != '{}' %}{{ r.result_json }}{% else %}—{% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    {{ m.empty_state('Команд ещё не было.') }}
+  {% endif %}
+</div>
 
 {% call m.decision_box('Как это работает') %}
 <ul class="text-sm space-y-1">

@@ -44,6 +44,8 @@
   </div>
 </div>
 
+{% call m.poll('cost-content', request.url, 30) %}
+
 {% if total_calls == 0 %}
   {{ m.empty_state('Нет LLM-шагов в выбранном окне. Расширь window до 7d/30d/all, либо запусти ReAct: `docker compose run --rm agent` / `uv run python -m harnes.operator run-tick --real`.') }}
 {% else %}
@@ -238,4 +240,6 @@
 </div>
 
 {% endif %}
+
+{% endcall %}
 {% endblock %}

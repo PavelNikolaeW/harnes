@@ -19,21 +19,27 @@
   {% endif %}
 </div>
 
-{# ---------- Top stats row ---------- #}
+{# ---------- Top stats row (auto-refresh every 5s) ---------- #}
 
-<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-  {{ m.stat_card('Active goals',     by_status.get('active', 0)) }}
-  {{ m.stat_card('Pending',          by_status.get('pending', 0), 'awaiting arbitration') }}
-  {{ m.stat_card('Pending approval', by_status.get('pending_approval', 0), 'self-goals → operator') }}
-  {{ m.stat_card('Done / Failed',    (by_status.get('done', 0)|string) + ' / ' + (by_status.get('failed', 0)|string)) }}
-</div>
+<div data-poll-target="dashboard-stats"
+     hx-get="/dashboard"
+     hx-trigger="every 5s [autoRefresh()]"
+     hx-select="[data-poll-target='dashboard-stats']"
+     hx-swap="outerHTML">
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+    {{ m.stat_card('Active goals',     by_status.get('active', 0)) }}
+    {{ m.stat_card('Pending',          by_status.get('pending', 0), 'awaiting arbitration') }}
+    {{ m.stat_card('Pending approval', by_status.get('pending_approval', 0), 'self-goals → operator') }}
+    {{ m.stat_card('Done / Failed',    (by_status.get('done', 0)|string) + ' / ' + (by_status.get('failed', 0)|string)) }}
+  </div>
 
-<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
-  {% set jstats = journal_stats %}
-  {{ m.stat_card('Ticks in journal', jstats.total_events, 'events across run-loop') }}
-  {{ m.stat_card('Self-spawned goals', spawned_total, 'standing + reflect inquiries') }}
-  {{ m.stat_card('Goals completed (journal)', done_total) }}
-  {{ m.stat_card('Goals failed (journal)', fail_total) }}
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+    {% set jstats = journal_stats %}
+    {{ m.stat_card('Ticks in journal', jstats.total_events, 'events across run-loop') }}
+    {{ m.stat_card('Self-spawned goals', spawned_total, 'standing + reflect inquiries') }}
+    {{ m.stat_card('Goals completed (journal)', done_total) }}
+    {{ m.stat_card('Goals failed (journal)', fail_total) }}
+  </div>
 </div>
 
 {# ---------- Two-column body ---------- #}
@@ -80,8 +86,13 @@
     {% endif %}
   </div>
 
-  {# Recent ticks (SSE-livable) #}
-  <div class="lg:col-span-1">
+  {# Recent ticks — refresh каждые 5s #}
+  <div data-poll-target="dashboard-events"
+       class="lg:col-span-1"
+       hx-get="/dashboard"
+       hx-trigger="every 5s [autoRefresh()]"
+       hx-select="[data-poll-target='dashboard-events']"
+       hx-swap="outerHTML">
     {{ m.section_title('Recent tick events',
         ('snapshot @ tick ' + (snapshot.tick_id|string)) if snapshot else 'no snapshot yet') }}
     {% if recent_events %}
@@ -107,8 +118,13 @@
     {% endif %}
   </div>
 
-  {# Recent trajectories #}
-  <div class="lg:col-span-1">
+  {# Recent trajectories — refresh каждые 5s #}
+  <div data-poll-target="dashboard-trajs"
+       class="lg:col-span-1"
+       hx-get="/dashboard"
+       hx-trigger="every 5s [autoRefresh()]"
+       hx-select="[data-poll-target='dashboard-trajs']"
+       hx-swap="outerHTML">
     {{ m.section_title('Recent trajectories') }}
     {% if recent_trajs %}
       <ul class="space-y-2">

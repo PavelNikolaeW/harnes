@@ -46,6 +46,7 @@
   {% endif %}
 </form>
 
+{% call m.poll('goals-table', request.url, 10) %}
 {% if goals %}
   <div x-data="{ picked: [], action: 'approve' }">
     {% if not read_only %}
@@ -121,4 +122,5 @@
 {% else %}
   {{ m.empty_state('Нет целей под выбранным фильтром.') }}
 {% endif %}
+{% endcall %}
 {% endblock %}

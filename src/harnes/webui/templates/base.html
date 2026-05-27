@@ -75,11 +75,46 @@
       <a href="/config"        class="hover:underline">config</a>
       <a href="/health"        class="hover:underline">health</a>
     </nav>
-    <div class="ml-auto text-xs text-soft font-mono">
-      research console · v0
+    <div class="ml-auto flex items-center gap-3 text-xs font-mono text-soft">
+      <button id="refresh-toggle" type="button"
+              onclick="toggleAutoRefresh()"
+              title="HTMX polling on data blocks (см. hx-trigger)"
+              class="border border-edge rounded px-2 py-0.5 hover:bg-paper">
+        ⟳ <span id="refresh-toggle-label">live</span>
+      </button>
+      <span>research console · v0</span>
     </div>
   </div>
 </header>
+
+<script>
+  // ---------- HTMX auto-refresh toggle ----------
+  // Каждый refreshable-div имеет hx-trigger="every Ns [autoRefresh()]".
+  // `[expr]` HTMX-фильтр: trigger fires только если expr truthy.
+  // Состояние в localStorage чтобы переживать reload.
+  function autoRefresh() {
+    return localStorage.getItem('hxAutoRefresh') !== 'off';
+  }
+  function syncRefreshLabel() {
+    const lbl = document.getElementById('refresh-toggle-label');
+    const btn = document.getElementById('refresh-toggle');
+    if (!lbl || !btn) return;
+    if (autoRefresh()) {
+      lbl.textContent = 'live';
+      btn.classList.remove('text-soft');
+      btn.classList.add('text-accent');
+    } else {
+      lbl.textContent = 'paused';
+      btn.classList.remove('text-accent');
+      btn.classList.add('text-soft');
+    }
+  }
+  function toggleAutoRefresh() {
+    localStorage.setItem('hxAutoRefresh', autoRefresh() ? 'off' : 'on');
+    syncRefreshLabel();
+  }
+  document.addEventListener('DOMContentLoaded', syncRefreshLabel);
+</script>
 
 <main class="max-w-[1240px] mx-auto px-6 py-6">
   {% block content %}{% endblock %}

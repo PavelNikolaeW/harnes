@@ -39,6 +39,7 @@
   <button type="submit" class="bg-ink text-cream text-sm px-3 py-1 rounded font-mono">apply</button>
 </form>
 
+{% call m.poll('trajs-table', request.url, 10) %}
 {% if trajectories %}
   <div x-data="diffSelector()">
     {% if diff_enabled %}
@@ -96,6 +97,7 @@
 {% else %}
   {{ m.empty_state('Траекторий нет. ReAct ещё не запускался — попробуй `docker compose run agent` или `uv run python -m harnes.operator run-tick --real`.') }}
 {% endif %}
+{% endcall %}
 
 {% if diff_enabled %}
 <script>

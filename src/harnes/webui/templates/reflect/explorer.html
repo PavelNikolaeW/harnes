@@ -12,6 +12,8 @@
   НЕ выполняется каждый тик — пустое окно норма.
 </p>
 
+{% call m.poll('reflect-content', request.url, 30) %}
+
 {# ---------- Stats ---------- #}
 <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
   {{ m.stat_card('Reflect events', stats.total, 'in window ' + window) }}
@@ -141,5 +143,7 @@
   <li><strong>volume</strong> — каждые N успешных тиков → батч-консолидация.</li>
   <li><strong>schedule</strong> — будущий <code class="font-mono">periodic_review</code>: расписанный самоаудит (даже без триггеров).</li>
 </ul>
+{% endcall %}
+
 {% endcall %}
 {% endblock %}

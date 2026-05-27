@@ -44,6 +44,8 @@
   </div>
 </div>
 
+{% call m.poll('self-gen-content', request.url, 30) %}
+
 {# ---------- Top stat cards ---------- #}
 <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
   {% if total_ticks == 0 %}
@@ -248,6 +250,8 @@
     «gone» в статусе означает, что goal удалён из <code>GoalRepository</code> (был чистый прогон
     или другая ретенция) — событие в journal сохраняется.
   </p>
+{% endcall %}
+
 {% endcall %}
 
 {% endblock %}

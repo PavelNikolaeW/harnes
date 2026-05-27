@@ -17,6 +17,8 @@
   events с <code class="bg-paper px-1 rounded">payload.originator == "standing:&lt;id&gt;"</code>.
 </p>
 
+{% call m.poll('standing-content', request.url, 30) %}
+
 {# ---------- Top stat cards ---------- #}
 <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
   {{ m.stat_card(
@@ -197,6 +199,8 @@
     «gone» = child удалён из <code>GoalRepository</code> (clean run / retention),
     в done не учитывается.
   </p>
+{% endcall %}
+
 {% endcall %}
 
 {% endblock %}
