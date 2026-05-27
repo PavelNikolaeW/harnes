@@ -592,8 +592,10 @@ def run_loop(
                 next_tick=tick_id,
             )
 
+    from harnes import AGENT_NAME
+
     click.echo(
-        f"Running metacycle (interval={interval}s, "
+        f"{AGENT_NAME} awake (interval={interval}s, "
         f"react={'stub' if stub else 'real LLM'}, "
         f"max_ticks={max_ticks or '∞'}, "
         f"journal={'on' if tick_journal else 'off'}). Ctrl+C to stop."
