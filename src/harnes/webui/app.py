@@ -30,6 +30,7 @@ from harnes.webui.routers import (
     api_memory_volumes,
     api_reflect,
     api_replay,
+    api_search,
     api_self_gen,
     api_skills,
     api_standing,
@@ -106,6 +107,7 @@ def create_app() -> FastAPI:
     app.include_router(api_standing.router, prefix="/standing", tags=["standing"])
     app.include_router(api_memory_volumes.router, prefix="/memory/volumes", tags=["memory"])
     app.include_router(api_config.router, prefix="/config", tags=["config"])
+    app.include_router(api_search.router, prefix="/search", tags=["search"])
 
     return app
 

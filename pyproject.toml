@@ -88,6 +88,8 @@ select = ["E", "F", "I", "B", "UP", "N", "RUF"]
 "src/harnes/metacycle/commands.py" = ["UP042", "RUF001", "RUF002", "RUF003"]
 # operator/cli.py — большие click-блоки с русскоязычными help-строками.
 "src/harnes/operator/cli.py" = ["RUF001", "RUF002", "RUF003", "E501"]
+# Webui tests — русскоязычные docstrings + помощники.
+"tests/webui/**/*.py" = ["RUF001", "RUF002", "RUF003"]
 
 [tool.mypy]
 python_version = "3.12"

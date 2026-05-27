@@ -1,0 +1,324 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}search{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-semibold mb-1">Universal search</h1>
+<p class="text-soft text-sm mb-4">
+  Один query, поиск одновременно по goals + trajectories + journal + skills + eval.
+  Для UUID — exact match без сканирования. Source-фильтры (чекбоксы) и limit — в форме ниже.
+</p>
+
+{# ---------- Search form ---------- #}
+<form method="get" action="/search" class="p-4 bg-paper border border-edge rounded mb-6">
+  <div class="flex flex-wrap gap-3 items-end mb-3">
+    <label class="flex-1 min-w-[20em]">
+      <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">query</span>
+      <input type="text" name="q" value="{{ q }}" autofocus size="60"
+             placeholder="goal id / описание / event_type / skill name / adapter / UUID…"
+             class="w-full border border-edge rounded px-3 py-2 bg-cream font-mono text-sm">
+    </label>
+    <label class="text-sm">
+      <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">limit (per source)</span>
+      <input type="number" name="limit" value="{{ limit }}" min="1" max="100"
+             class="border border-edge rounded px-2 py-2 bg-cream font-mono text-sm w-24">
+    </label>
+    <button type="submit" class="bg-accent text-cream px-4 py-2 rounded font-mono text-sm hover:opacity-90">
+      search →
+    </button>
+  </div>
+
+  <div class="flex flex-wrap gap-4 items-center text-sm">
+    <span class="text-[11px] uppercase text-soft tracking-wide font-mono">sources</span>
+    {# `types` controlled — комбинация чекбоксов собирается в JS перед submit;
+       fallback: если ни одно — пустой `types` параметр, который parser трактует
+       как "all" (или, по факту, пустой список выбранных = все unchecked = нет).
+       Используем hidden field `types` + Alpine для UX. #}
+    <div x-data="{
+            selected: {{ selected_types|tojson }},
+            all_sources: {{ all_sources|tojson }},
+            toggle(src) {
+              if (this.selected.includes(src)) {
+                this.selected = this.selected.filter(s => s !== src);
+              } else {
+                this.selected.push(src);
+              }
+            },
+            select_all() { this.selected = [...this.all_sources]; },
+            clear_all()  { this.selected = []; },
+         }"
+         class="flex flex-wrap gap-3 items-center">
+      <input type="hidden" name="types" :value="selected.length === all_sources.length ? 'all' : selected.join(',')">
+      {% for src in all_sources %}
+        <label class="flex items-center gap-1.5 font-mono text-xs cursor-pointer">
+          <input type="checkbox" :checked="selected.includes('{{ src }}')"
+                 @change="toggle('{{ src }}')">
+          <span>{{ src }}</span>
+          {% set r = results[src] %}
+          {% if not r.available %}
+            <span class="text-soft">(off)</span>
+          {% endif %}
+        </label>
+      {% endfor %}
+      <span class="text-edge">·</span>
+      <button type="button" @click.prevent="select_all()" class="text-link text-xs hover:underline">all</button>
+      <button type="button" @click.prevent="clear_all()" class="text-link text-xs hover:underline">none</button>
+    </div>
+  </div>
+</form>
+
+{# ---------- Empty query → hint ---------- #}
+{% if not q_clean %}
+  {% call m.decision_box('Что ищется') %}
+    <ul class="text-sm space-y-1">
+      <li><strong>goals</strong> — substring в <code>description</code> (case-insensitive) + UUID exact match.</li>
+      <li><strong>trajectories</strong> — substring в id / goal_id / status; UUID exact match через episodic meta; keyword scoring по step content.</li>
+      <li><strong>journal</strong> — substring в payload + exact event_type ("tick_started", "goal_completed", …).</li>
+      <li><strong>skills</strong> — substring в id / name / description.</li>
+      <li><strong>eval</strong> — substring в adapter / eval_set / notes (включая held-out).</li>
+    </ul>
+    <p class="text-xs text-soft mt-3">
+      UUID в строке поиска переключает на exact-match (goal.get(UUID) + episodic.get_trajectory_meta(UUID)) — это дешевле, чем scan'ить тысячи row'ов.
+    </p>
+  {% endcall %}
+
+{% else %}
+
+  {# ---------- Stat-cards summary ---------- #}
+  <div class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
+    {{ m.stat_card('Total hits', total, ('UUID-mode' if q_is_uuid else 'substring search')) }}
+    {% for src in all_sources %}
+      {% set r = results[src] %}
+      {% if src == 'trajectories' %}
+        {{ m.stat_card(src, r.count|string + ' / ' + r.step_count|string,
+            'meta / steps' + (' · off' if not r.available else '')) }}
+      {% else %}
+        {{ m.stat_card(src, r.count,
+            ('off' if not r.available else
+             ('error' if r.error else
+              ('no hits' if r.count == 0 else '')))) }}
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  {# Source-level errors — отдельная плашка, чтобы не теряться. #}
+  {% set any_errors = [] %}
+  {% for src in all_sources %}
+    {% if results[src].error %}{% if any_errors.append(src) %}{% endif %}{% endif %}
+  {% endfor %}
+  {% if any_errors %}
+    <div class="border border-red-200 bg-red-50 text-red-900 rounded p-3 mb-4 text-xs font-mono">
+      ⚠ source-failures:
+      {% for src in any_errors %}
+        <div class="mt-1"><strong>{{ src }}</strong>: {{ results[src].error }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {# ---------- Goals ---------- #}
+  {% if 'goals' in selected_types and results.goals.hits %}
+    {{ m.section_title('Goals', results.goals.count|string + ' hit(s)') }}
+    {% if results.goals.count >= limit %}
+      <div class="text-xs text-soft font-mono mb-2">
+        showing first {{ limit }} — refine query if needed.
+      </div>
+    {% endif %}
+    <div class="border border-edge rounded overflow-hidden mb-6">
+      <table class="w-full text-sm">
+        <thead class="bg-paper text-soft">
+          <tr>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">id</th>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">class</th>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">status</th>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">description</th>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for g in results.goals.hits %}
+            <tr class="border-t border-edge hover:bg-paper/60">
+              <td class="px-3 py-2 font-mono text-xs">
+                <a href="/goals/{{ g.id }}" class="text-link hover:underline">{{ g.id|short_uuid }}</a>
+              </td>
+              <td class="px-3 py-2">{{ m.badge(g.goal_class.value) }}</td>
+              <td class="px-3 py-2">{{ m.badge(g.status.value, g.status.value) }}</td>
+              <td class="px-3 py-2"><a href="/goals/{{ g.id }}" class="text-link hover:underline">{{ g.description }}</a></td>
+              <td class="px-3 py-2 font-mono text-xs text-soft">{{ g.updated_at|relative_time }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+  {# ---------- Trajectories (meta) ---------- #}
+  {% if 'trajectories' in selected_types and results.trajectories.hits %}
+    {{ m.section_title('Trajectories', results.trajectories.count|string + ' meta hit(s)') }}
+    {% if results.trajectories.count >= limit %}
+      <div class="text-xs text-soft font-mono mb-2">
+        showing first {{ limit }} — refine query if needed.
+      </div>
+    {% endif %}
+    <div class="border border-edge rounded overflow-hidden mb-6">
+      <table class="w-full text-sm">
+        <thead class="bg-paper text-soft">
+          <tr>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">id</th>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">status</th>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">goal</th>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">started</th>
+            <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">tokens</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in results.trajectories.hits %}
+            <tr class="border-t border-edge hover:bg-paper/60">
+              <td class="px-3 py-2 font-mono text-xs">
+                <a href="/trajectories/{{ t.id }}" class="text-link hover:underline">{{ t.id[:8] }}…</a>
+              </td>
+              <td class="px-3 py-2">{{ m.badge(t.status, t.status) }}</td>
+              <td class="px-3 py-2 font-mono text-xs">
+                {% if t.goal_id %}
+                  <a href="/goals/{{ t.goal_id }}" class="text-link hover:underline">{{ t.goal_id[:8] }}…</a>
+                {% else %}<span class="text-soft">—</span>{% endif %}
+              </td>
+              <td class="px-3 py-2 font-mono text-xs text-soft">{{ t.started_at|short_dt }}</td>
+              <td class="px-3 py-2 font-mono text-right">{{ t.total_cost_tokens or 0 }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+  {# ---------- Trajectory step hits (content scoring) ---------- #}
+  {% if 'trajectories' in selected_types and results.trajectories.step_hits %}
+    {{ m.section_title('Trajectory steps', results.trajectories.step_count|string + ' content hit(s)') }}
+    {% if results.trajectories.step_count >= limit %}
+      <div class="text-xs text-soft font-mono mb-2">
+        showing first {{ limit }} — refine query if needed.
+      </div>
+    {% endif %}
+    <ol class="space-y-2 mb-6">
+      {% for r in results.trajectories.step_hits %}
+        <li class="border-l-4 {{ r.step_type|step_color }} pl-3 py-2 border-y border-r border-edge rounded">
+          <div class="flex items-baseline gap-3 text-xs font-mono text-soft mb-1">
+            <span class="text-accent">{{ r.step_type }}</span>
+            <span>{{ r.timestamp|short_dt }}</span>
+            <a href="/trajectories/{{ r.trajectory_id }}" class="text-link hover:underline">traj {{ r.trajectory_id[:8] }}</a>
+            <a href="/goals/{{ r.goal_id }}" class="text-link hover:underline">goal {{ r.goal_id[:8] }}</a>
+          </div>
+          {{ m.json_block(r.content, '10em') }}
+        </li>
+      {% endfor %}
+    </ol>
+  {% endif %}
+
+  {# ---------- Journal ---------- #}
+  {% if 'journal' in selected_types and results.journal.hits %}
+    {{ m.section_title('Journal events', results.journal.count|string + ' hit(s)') }}
+    {% if results.journal.count >= limit %}
+      <div class="text-xs text-soft font-mono mb-2">
+        showing first {{ limit }} — refine query if needed.
+      </div>
+    {% endif %}
+    <div class="border border-edge rounded overflow-hidden mb-6">
+      <table class="w-full text-sm">
+        <thead class="bg-paper text-soft">
+          <tr>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">timestamp</th>
+            <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">tick</th>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">event_type</th>
+            <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">payload</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in results.journal.hits %}
+            <tr class="border-t border-edge">
+              <td class="px-3 py-1.5 font-mono text-xs text-soft">{{ e.timestamp|short_dt }}</td>
+              <td class="px-3 py-1.5 font-mono text-right">
+                <a href="/journal?tick_id={{ e.tick_id }}" class="text-link hover:underline">{{ e.tick_id }}</a>
+              </td>
+              <td class="px-3 py-1.5 font-mono">
+                <a href="/journal?event_type={{ e.event_type }}" class="text-accent hover:underline">{{ e.event_type }}</a>
+              </td>
+              <td class="px-3 py-1.5 font-mono text-xs text-ink">{{ e.payload_json[:200] }}{% if e.payload_json|length > 200 %}…{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+  {# ---------- Skills ---------- #}
+  {% if 'skills' in selected_types and results.skills.hits %}
+    {{ m.section_title('Skills', results.skills.count|string + ' hit(s)') }}
+    {% if results.skills.count >= limit %}
+      <div class="text-xs text-soft font-mono mb-2">
+        showing first {{ limit }} — refine query if needed.
+      </div>
+    {% endif %}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
+      {% for sk in results.skills.hits %}
+        <div class="border border-edge rounded p-3 bg-paper/40">
+          <div class="flex items-baseline justify-between mb-1">
+            <a href="/skills/{{ sk.id }}" class="font-mono text-sm text-link hover:underline">{{ sk.id }}</a>
+            <span class="text-xs font-mono text-soft">v{{ sk.version }}</span>
+          </div>
+          <div class="flex items-center gap-2 mb-2">
+            <span class="text-sm font-semibold">{{ sk.name }}</span>
+            {{ m.badge(sk.status.value, sk.status.value) }}
+          </div>
+          <p class="text-xs text-soft">{{ sk.description[:160] }}{% if sk.description|length > 160 %}…{% endif %}</p>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {# ---------- Eval runs ---------- #}
+  {% if 'eval' in selected_types and results.eval.hits %}
+    {{ m.section_title('Eval runs', results.eval.count|string + ' hit(s)') }}
+    {% if results.eval.count >= limit %}
+      <div class="text-xs text-soft font-mono mb-2">
+        showing first {{ limit }} — refine query if needed.
+      </div>
+    {% endif %}
+    <div class="border border-edge rounded overflow-hidden mb-6">
+      <table class="w-full text-sm">
+        <thead class="bg-paper text-soft">
+          <tr>
+            <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">id</th>
+            <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">adapter</th>
+            <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">eval_set</th>
+            <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">success</th>
+            <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">started</th>
+            <th class="text-left  px-3 py-2 font-mono text-[11px] uppercase">notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in results.eval.hits %}
+            <tr class="border-t border-edge hover:bg-paper/60 {% if r.held_out %}bg-amber-50/30{% endif %}">
+              <td class="px-3 py-2 font-mono text-right">
+                <a href="/eval/{{ r.id }}" class="text-link hover:underline">#{{ r.id }}</a>
+                {% if r.held_out %}<span class="text-amber-700" title="held-out">*</span>{% endif %}
+              </td>
+              <td class="px-3 py-2 font-mono text-xs">{{ r.adapter_name }}</td>
+              <td class="px-3 py-2 font-mono text-xs text-soft">{{ r.eval_set or '—' }}</td>
+              <td class="px-3 py-2 font-mono text-right">{{ '%.1f%%' % (r.success_rate * 100) }}</td>
+              <td class="px-3 py-2 font-mono text-xs text-soft">{{ r.started_at|short_dt }}</td>
+              <td class="px-3 py-2 text-xs text-soft">{{ r.notes[:80] }}{% if r.notes|length > 80 %}…{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+  {# ---------- Empty results (no hits anywhere) ---------- #}
+  {% if total == 0 %}
+    {{ m.empty_state('Ничего не найдено по запросу «' + q_clean + '». Попробуй другой term или сними чекбоксы — возможно, нужный source отключён.') }}
+  {% endif %}
+
+{% endif %}
+{% endblock %}
