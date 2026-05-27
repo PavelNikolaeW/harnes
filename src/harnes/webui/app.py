@@ -19,6 +19,7 @@ from harnes.webui.config import get_webui_settings
 from harnes.webui.deps import close_stores, init_stores
 from harnes.webui.routers import (
     api_commands,
+    api_config,
     api_cost,
     api_diff,
     api_eval,
@@ -104,6 +105,7 @@ def create_app() -> FastAPI:
     app.include_router(api_reflect.router, prefix="/reflect", tags=["reflect"])
     app.include_router(api_standing.router, prefix="/standing", tags=["standing"])
     app.include_router(api_memory_volumes.router, prefix="/memory/volumes", tags=["memory"])
+    app.include_router(api_config.router, prefix="/config", tags=["config"])
 
     return app
 

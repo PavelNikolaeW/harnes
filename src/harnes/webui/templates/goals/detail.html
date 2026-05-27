@@ -77,8 +77,149 @@
 {{ m.section_title('Predicate of success') }}
 {{ m.json_block(goal.predicate_of_success.model_dump(mode='json'), '20em') }}
 
-{{ m.section_title('Budget') }}
-{{ m.json_block(goal.budget.model_dump(mode='json'), '15em') }}
+{{ m.section_title('Budget', 'operator-editable limits, consumed-counters managed by agent') }}
+
+{% set b = goal.budget %}
+{% set is_terminal = goal.status.value in ('done', 'failed', 'abandoned') %}
+{% set fields = [
+    ('tokens',       b.tokens,       b.tokens_consumed,  'int'),
+    ('steps',        b.steps,        b.steps_consumed,   'int'),
+    ('time_seconds', b.time_seconds, b.time_consumed,    'float'),
+    ('money',        b.money,        b.money_consumed,   'float'),
+] %}
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+  {% for name, limit, consumed, kind in fields %}
+    <div class="border border-edge rounded p-3 bg-paper">
+      <div class="flex items-baseline justify-between">
+        <div class="text-[11px] uppercase text-soft font-mono">{{ name }}</div>
+        <div class="font-mono text-xs text-soft">
+          {% if limit is none %}
+            {{ consumed }} / <span class="text-ink">—</span>
+          {% else %}
+            {% set pct = ((consumed / limit) * 100) if limit else 0 %}
+            {{ consumed }} / {{ limit }}
+            <span class="ml-1 {% if consumed > limit %}text-red-700{% elif pct >= 80 %}text-amber-700{% else %}text-soft{% endif %}">
+              ({{ pct|round(1) }}%)
+            </span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="mt-2 h-2 w-full bg-cream rounded overflow-hidden border border-edge">
+        {% if limit is none %}
+          <div class="h-full w-full bg-stone-200/60"></div>
+        {% else %}
+          {% set pct_raw = ((consumed / limit) * 100) if limit else 0 %}
+          {% set pct_clamped = pct_raw if pct_raw < 100 else 100 %}
+          {% set bar_color = 'bg-red-400' if consumed > limit else ('bg-amber-400' if pct_raw >= 80 else 'bg-emerald-400') %}
+          <div class="h-full {{ bar_color }}" style="width: {{ pct_clamped }}%"></div>
+        {% endif %}
+      </div>
+    </div>
+  {% endfor %}
+</div>
+
+{% if not read_only and not is_terminal %}
+  <details class="mb-3 border border-edge rounded bg-paper">
+    <summary class="cursor-pointer px-3 py-2 text-xs font-mono uppercase text-soft hover:text-ink select-none">
+      edit budget limits
+    </summary>
+    <form method="post" action="/goals/{{ goal.id }}/budget" class="p-3 space-y-2">
+      <p class="text-xs text-soft mb-2">
+        Пусто = <em>unlimited</em>. Negative → 400. Consumed-counters не сбрасываются —
+        правится только верхний предел.
+      </p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+        <label class="flex items-center gap-2">
+          <span class="text-xs font-mono text-soft w-32">tokens</span>
+          <input type="text" name="tokens" placeholder="unlimited"
+                 value="{{ b.tokens if b.tokens is not none else '' }}"
+                 inputmode="numeric"
+                 class="flex-1 border border-edge rounded px-2 py-1 font-mono text-sm bg-cream">
+        </label>
+        <label class="flex items-center gap-2">
+          <span class="text-xs font-mono text-soft w-32">steps</span>
+          <input type="text" name="steps" placeholder="unlimited"
+                 value="{{ b.steps if b.steps is not none else '' }}"
+                 inputmode="numeric"
+                 class="flex-1 border border-edge rounded px-2 py-1 font-mono text-sm bg-cream">
+        </label>
+        <label class="flex items-center gap-2">
+          <span class="text-xs font-mono text-soft w-32">time_seconds</span>
+          <input type="text" name="time_seconds" placeholder="unlimited"
+                 value="{{ b.time_seconds if b.time_seconds is not none else '' }}"
+                 inputmode="decimal"
+                 class="flex-1 border border-edge rounded px-2 py-1 font-mono text-sm bg-cream">
+        </label>
+        <label class="flex items-center gap-2">
+          <span class="text-xs font-mono text-soft w-32">money</span>
+          <input type="text" name="money" placeholder="unlimited"
+                 value="{{ b.money if b.money is not none else '' }}"
+                 inputmode="decimal"
+                 class="flex-1 border border-edge rounded px-2 py-1 font-mono text-sm bg-cream">
+        </label>
+      </div>
+      <label class="flex items-center gap-2 mt-2">
+        <span class="text-xs font-mono text-soft w-32">reason</span>
+        <input type="text" name="reason" placeholder="why this change"
+               class="flex-1 border border-edge rounded px-2 py-1 font-mono text-sm bg-cream">
+      </label>
+      <div class="pt-1">
+        <button type="submit"
+                class="bg-amber-100 border border-amber-300 text-amber-900 px-3 py-1.5 rounded font-mono text-sm hover:bg-amber-200">
+          save budget
+        </button>
+      </div>
+    </form>
+  </details>
+{% elif is_terminal %}
+  <p class="text-xs text-soft font-mono mb-3">budget locked — goal in terminal status</p>
+{% endif %}
+
+{% set edits = goal.metadata.get('budget_edits') if goal.metadata else None %}
+{% if edits %}
+  <div class="mb-3">
+    <div class="text-[11px] uppercase text-soft font-mono mb-1">edit history ({{ edits|length }})</div>
+    <ul class="space-y-1">
+      {% for e in edits|reverse %}
+        <li class="border border-edge rounded p-2 bg-cream text-xs font-mono">
+          <div class="flex items-baseline gap-2 text-soft">
+            <span>{{ e.ts|short_dt }}</span>
+            <span>·</span>
+            <span>by {{ e.issuer }}</span>
+            {% if e.reason %}<span>· "{{ e.reason }}"</span>{% endif %}
+          </div>
+          <div class="mt-1 grid grid-cols-1 md:grid-cols-2 gap-x-4">
+            {% for key in ['tokens', 'steps', 'time_seconds', 'money'] %}
+              {% set old_v = e.old_limits.get(key) if e.old_limits else None %}
+              {% set new_v = e.new_limits.get(key) if e.new_limits else None %}
+              {% if old_v != new_v %}
+                <div>
+                  <span class="text-soft">{{ key }}:</span>
+                  <span class="text-red-700">{{ old_v if old_v is not none else '—' }}</span>
+                  →
+                  <span class="text-emerald-700">{{ new_v if new_v is not none else '—' }}</span>
+                </div>
+              {% endif %}
+            {% endfor %}
+          </div>
+          {% if e.warnings %}
+            <ul class="mt-1 text-amber-800">
+              {% for w in e.warnings %}
+                <li>! {{ w }}</li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endif %}
+
+<details class="mb-3">
+  <summary class="cursor-pointer text-xs font-mono text-soft hover:text-ink">raw budget JSON</summary>
+  {{ m.json_block(goal.budget.model_dump(mode='json'), '15em') }}
+</details>
 
 {% if parent %}
   {{ m.section_title('Parent goal') }}

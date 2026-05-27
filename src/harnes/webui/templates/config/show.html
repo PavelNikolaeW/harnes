@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}config · harnes{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-semibold mb-1">Live configuration</h1>
+<p class="text-soft text-sm mb-6">
+  Read-only снимок Settings-tree, склеенный из <code>default.yaml</code> + env-vars
+  (env перевешивает yaml). Изменения требуют рестарта контейнера.
+</p>
+
+{# ---------- Overview cards ---------- #}
+<div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+  {{ m.stat_card('Agent', overview.agent_name) }}
+  {{ m.stat_card('Python', overview.python_version) }}
+  {{ m.stat_card('Sections', sections|length) }}
+  {{ m.stat_card('Env overrides', overview.env_overrides_total,
+                  'переменных вида SECTION__KEY=…') }}
+  {{ m.stat_card('Config file', '', overview.config_file) }}
+</div>
+
+{# ---------- Per-section accordion ---------- #}
+{{ m.section_title('Sections', '{{section}}.{{key}} → env-var SECTION__KEY') }}
+
+{% for section in sections %}
+  <div x-data="{ open: true }" class="border border-edge rounded mb-3 bg-cream">
+    <button type="button"
+            @click="open = !open"
+            class="w-full flex items-baseline justify-between px-4 py-3 text-left hover:bg-paper/60">
+      <span class="font-mono text-sm font-semibold text-ink">
+        <span class="text-soft mr-1" x-text="open ? '▾' : '▸'"></span>
+        {{ section.name }}
+      </span>
+      <span class="text-xs text-soft font-mono">
+        {{ section.rows|length }} field{% if section.rows|length != 1 %}s{% endif %}
+        {% if section.env_override_count %}
+          · <span class="text-accent">{{ section.env_override_count }} env-override{% if section.env_override_count != 1 %}s{% endif %}</span>
+        {% endif %}
+      </span>
+    </button>
+    <div x-show="open" x-cloak class="border-t border-edge">
+      <table class="w-full text-sm">
+        <thead class="bg-paper text-soft">
+          <tr>
+            <th class="text-left px-4 py-2 font-mono text-[11px] uppercase w-1/4">key</th>
+            <th class="text-left px-4 py-2 font-mono text-[11px] uppercase">value</th>
+            <th class="text-left px-4 py-2 font-mono text-[11px] uppercase w-1/4">env</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in section.rows %}
+            <tr class="border-t border-edge hover:bg-paper/40">
+              <td class="px-4 py-2 font-mono text-xs align-top">{{ row.key }}</td>
+              <td class="px-4 py-2 font-mono text-xs align-top">
+                {% if row.value is mapping or row.value is sequence and row.value is not string %}
+                  <pre class="bg-paper border border-edge rounded px-2 py-1 leading-snug overflow-auto max-h-40 m-0">{{ row.value|pretty_json }}</pre>
+                {% elif row.value is none %}
+                  <span class="text-soft">null</span>
+                {% elif row.value is sameas true or row.value is sameas false %}
+                  {{ m.badge(row.value|string|lower, 'success' if row.value else 'warning') }}
+                {% else %}
+                  <span class="break-all">{{ row.value }}</span>
+                {% endif %}
+              </td>
+              <td class="px-4 py-2 font-mono text-xs align-top">
+                {% if row.env_var %}
+                  <div class="flex flex-col gap-1">
+                    {{ m.badge(row.env_var, 'warning') }}
+                    <span class="text-soft text-[11px] break-all">= {{ row.env_value }}</span>
+                  </div>
+                {% else %}
+                  <span class="text-soft">—</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endfor %}
+
+{# ---------- WebUI settings ---------- #}
+{{ m.section_title('WebUI settings', 'WEBUI_*-переменные') }}
+<div class="border border-edge rounded overflow-hidden mb-6">
+  <table class="w-full text-sm">
+    <thead class="bg-paper text-soft">
+      <tr>
+        <th class="text-left px-4 py-2 font-mono text-[11px] uppercase w-1/4">key</th>
+        <th class="text-left px-4 py-2 font-mono text-[11px] uppercase">value</th>
+        <th class="text-left px-4 py-2 font-mono text-[11px] uppercase w-1/4">env</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in webui_rows %}
+        <tr class="border-t border-edge hover:bg-paper/40">
+          <td class="px-4 py-2 font-mono text-xs">{{ row.key }}</td>
+          <td class="px-4 py-2 font-mono text-xs">
+            {% if row.value is none %}
+              <span class="text-soft">null</span>
+            {% elif row.value is sameas true or row.value is sameas false %}
+              {{ m.badge(row.value|string|lower, 'success' if row.value else 'warning') }}
+            {% else %}
+              <span class="break-all">{{ row.value }}</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-2 font-mono text-xs">
+            {% if row.env_var %}
+              <div class="flex flex-col gap-1">
+                {{ m.badge(row.env_var, 'warning') }}
+                <span class="text-soft text-[11px] break-all">= {{ row.env_value }}</span>
+              </div>
+            {% else %}
+              <span class="text-soft">—</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% call m.decision_box('Откуда берётся значение') %}
+<p class="text-sm mb-2">
+  Pydantic-settings обрабатывает источники в порядке (high → low): <strong>env-vars</strong>
+  → <strong>YAML</strong> (<code>{{ overview.config_file }}</code>) → built-in defaults на классах
+  <code>BaseModel</code>. Env-var формируется как <code>SECTION__KEY</code> с разделителем
+  <code>__</code> (nested: <code>LLM__TIERS__LIGHT</code>).
+</p>
+<p class="text-sm mb-2">
+  Колонка <em>env</em> выше показывает <strong>только те env-vars, которые сейчас
+  присутствуют в процессе</strong>. Их наличие гарантирует override yaml/defaults,
+  но не означает что значение в колонке value именно из env: pydantic мог принять его
+  и при отсутствии env-var.
+</p>
+<p class="text-sm">
+  Секреты (<code>api_key</code>, <code>password</code>, <code>neo4j_password</code>,
+  <code>secret</code>) маскированы как <code>••• (hidden)</code> — на сервере значения
+  не модифицируются. Полная документация — <code>webui/README.md</code>.
+</p>
+{% endcall %}
+{% endblock %}

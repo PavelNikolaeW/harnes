@@ -4,6 +4,7 @@
 {% block title %}skill {{ skill.id }}{% endblock %}
 
 {% block content %}
+<div x-data="{ mode: 'view', bump: false, version: '{{ skill.version }}', bumped: '{{ bumped_version }}' }">
 <div class="text-xs font-mono text-soft mb-1">
   <a href="/skills" class="text-link hover:underline">← all skills</a>
 </div>
@@ -12,10 +13,83 @@
   <h1 class="text-2xl font-semibold">{{ skill.name }}</h1>
   {{ m.badge(skill.status.value, skill.status.value) }}
   <span class="font-mono text-sm text-soft">v{{ skill.version }}</span>
+  {% if not read_only %}
+    <button x-show="mode === 'view'" @click="mode = 'edit'"
+            class="ml-auto border border-edge bg-paper hover:bg-decision text-link px-3 py-1 rounded font-mono text-xs">
+      edit
+    </button>
+    <button x-show="mode === 'edit'" @click="mode = 'view'"
+            class="ml-auto border border-edge bg-paper hover:bg-decision text-soft px-3 py-1 rounded font-mono text-xs">
+      × cancel
+    </button>
+  {% endif %}
 </div>
 
-<div class="text-sm text-soft mb-6">{{ skill.description }}</div>
+<div class="text-sm text-soft mb-6" x-show="mode === 'view'">{{ skill.description }}</div>
 
+{# --- Edit form (operator) --- #}
+{% if not read_only %}
+<div x-show="mode === 'edit'" x-cloak class="mb-6">
+  {% call m.decision_box('Warning') %}
+    <p class="text-sm">
+      Редактирование пишет в YAML; если включён <code class="bg-paper px-1 rounded">git_auto_commit</code>
+      — будет git-коммит. Reflect-version'инг автоматически <strong>не дёрнется</strong>.
+      Если <em>bump version</em> отключён, старая версия будет перезаписана поверх того же YAML-файла.
+    </p>
+  {% endcall %}
+
+  <form method="post" action="/skills/{{ skill.id }}"
+        class="space-y-4 border border-edge bg-paper/40 p-5 rounded">
+
+    <label class="block">
+      <span class="text-xs uppercase tracking-wide text-soft font-mono">Description</span>
+      <textarea name="description" required rows="2"
+                class="w-full mt-1 border border-edge rounded px-3 py-2 bg-cream font-mono text-sm">{{ skill.description }}</textarea>
+    </label>
+
+    <label class="block">
+      <span class="text-xs uppercase tracking-wide text-soft font-mono">Prompt template</span>
+      <textarea name="prompt_template" required rows="10"
+                class="w-full mt-1 border border-edge rounded px-3 py-2 bg-cream font-mono text-[12.5px] leading-snug">{{ skill.prompt_template }}</textarea>
+    </label>
+
+    <div class="grid grid-cols-2 gap-3">
+      <label class="block">
+        <span class="text-xs uppercase tracking-wide text-soft font-mono">Status</span>
+        <select name="status"
+                class="w-full mt-1 border border-edge rounded px-2 py-1.5 bg-cream font-mono text-sm">
+          {% for s in ['active', 'experimental', 'deprecated'] %}
+            <option value="{{ s }}" {% if s == skill.status.value %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="flex items-start gap-2 pt-5">
+        <input type="checkbox" name="bump_version" value="true" x-model="bump"
+               class="mt-1">
+        <span class="text-xs text-soft font-mono leading-snug">
+          bump version (creates
+          <code class="bg-paper px-1 rounded" x-text="bumped"></code>
+          as new active, old → deprecated)
+        </span>
+      </label>
+    </div>
+
+    <div class="flex gap-3 items-center pt-2">
+      <button type="submit"
+              class="bg-accent text-cream px-4 py-2 rounded font-mono text-sm hover:opacity-90">
+        save
+      </button>
+      <button type="button" @click="mode = 'view'"
+              class="text-link text-sm font-mono hover:underline">× cancel</button>
+      <span class="text-xs text-soft font-mono ml-auto" x-show="bump">
+        v<span x-text="version"></span> → v<span x-text="bumped"></span>
+      </span>
+    </div>
+  </form>
+</div>
+{% endif %}
+
+<div x-show="mode === 'view'">
 <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
   {{ m.stat_card('Invocations', aggregated.invocation_count, 'across all versions') }}
   {{ m.stat_card('Success rate',
@@ -163,4 +237,6 @@
   updated {{ skill.updated_at|short_dt }}
   {% if skill.parent_version_id %} · parent v{{ skill.parent_version_id }}{% endif %}
 </div>
+</div>{# /view-mode #}
+</div>{# /x-data root #}
 {% endblock %}
