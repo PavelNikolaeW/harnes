@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}health · harnes{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-semibold mb-1">Backend health</h1>
+<p class="text-soft text-sm mb-6">
+  Быстрый TCP-чек хостов из конфига + статус инициализации stores внутри webui-процесса.
+</p>
+
+{{ m.section_title('Network / file backends') }}
+<div class="border border-edge rounded overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-paper text-soft">
+      <tr>
+        <th class="text-left px-4 py-2 font-mono text-[11px] uppercase">Backend</th>
+        <th class="text-left px-4 py-2 font-mono text-[11px] uppercase">Status</th>
+        <th class="text-left px-4 py-2 font-mono text-[11px] uppercase">Target</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for b in backends %}
+        <tr class="border-t border-edge">
+          <td class="px-4 py-2">{{ b.name }}</td>
+          <td class="px-4 py-2">
+            {% if b.ok %}
+              {{ m.badge('reachable', 'success') }}
+            {% else %}
+              {{ m.badge('unreachable', 'failed') }}
+            {% endif %}
+          </td>
+          <td class="px-4 py-2 font-mono text-xs text-soft">{{ b.target }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{{ m.section_title('In-process stores', 'инициализация на startup webui-приложения') }}
+<div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+  {% for name, ok in stores.items() %}
+    <div class="border border-edge bg-paper rounded p-3 flex justify-between items-baseline">
+      <span class="font-mono text-sm">{{ name }}</span>
+      {% if ok %}
+        {{ m.badge('ok', 'success') }}
+      {% else %}
+        {{ m.badge('absent', 'failed') }}
+      {% endif %}
+    </div>
+  {% endfor %}
+</div>
+
+{% call m.decision_box('Замечание') %}
+<p class="text-sm">
+  Health-проверка делает TCP connect — это не гарантирует, что Neo4j/Qdrant
+  готовы к запросам. Реальная работоспособность проверяется первым запросом
+  на странице memory или при write'ах агента.
+</p>
+{% endcall %}
+{% endblock %}

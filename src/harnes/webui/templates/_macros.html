@@ -1,0 +1,39 @@
+{# Reusable Jinja-макросы для всех страниц. #}
+
+{% macro badge(text, status=None, extra_class='') -%}
+  <span class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-mono uppercase tracking-wide rounded border {{ status|status_class if status else 'bg-paper text-soft border-edge' }} {{ extra_class }}">
+    {{ text }}
+  </span>
+{%- endmacro %}
+
+{% macro stat_card(label, value, hint='') -%}
+  <div class="bg-paper border border-edge rounded p-4">
+    <div class="text-[11px] uppercase tracking-wide text-soft">{{ label }}</div>
+    <div class="text-2xl font-mono font-semibold mt-1">{{ value }}</div>
+    {% if hint %}<div class="text-xs text-soft mt-1">{{ hint }}</div>{% endif %}
+  </div>
+{%- endmacro %}
+
+{% macro decision_box(title='') -%}
+  <div class="bg-decision border border-accentSoft border-l-4 border-l-accent rounded p-4 my-4">
+    {% if title %}<h4 class="font-mono text-accent uppercase tracking-wide text-xs mt-0 mb-2">{{ title }}</h4>{% endif %}
+    {{ caller() }}
+  </div>
+{%- endmacro %}
+
+{% macro empty_state(msg) -%}
+  <div class="bg-paper border border-edge border-dashed rounded p-8 text-center text-soft text-sm font-mono">
+    {{ msg }}
+  </div>
+{%- endmacro %}
+
+{% macro section_title(text, sub='') -%}
+  <div class="mt-8 mb-3 pb-2 border-b border-edge flex items-baseline justify-between">
+    <h2 class="text-lg font-semibold text-ink">{{ text }}</h2>
+    {% if sub %}<span class="text-xs text-soft font-mono">{{ sub }}</span>{% endif %}
+  </div>
+{%- endmacro %}
+
+{% macro json_block(value, max_h='32em') -%}
+  <pre class="bg-paper border border-edge rounded px-3 py-2 text-[12.5px] font-mono leading-snug overflow-auto" style="max-height: {{ max_h }};">{{ value|pretty_json }}</pre>
+{%- endmacro %}

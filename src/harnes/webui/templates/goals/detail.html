@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}goal {{ goal.id|short_uuid }}{% endblock %}
+
+{% block content %}
+<div class="text-xs font-mono text-soft mb-1">
+  <a href="/goals" class="text-link hover:underline">← all goals</a>
+</div>
+
+<div class="flex items-baseline gap-3 mb-2">
+  <h1 class="text-2xl font-semibold">{{ goal.description }}</h1>
+</div>
+
+<div class="flex flex-wrap gap-2 items-center mb-6 text-xs font-mono text-soft">
+  <span>id: {{ goal.id }}</span>
+  <span>·</span>
+  <span>created: {{ goal.created_at|short_dt }}</span>
+  <span>·</span>
+  <span>updated: {{ goal.updated_at|short_dt }}</span>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">
+  <div class="border border-edge rounded p-3 bg-paper">
+    <div class="text-[11px] uppercase text-soft font-mono">status</div>
+    <div class="mt-1">{{ m.badge(goal.status.value, goal.status.value) }}</div>
+  </div>
+  <div class="border border-edge rounded p-3 bg-paper">
+    <div class="text-[11px] uppercase text-soft font-mono">class</div>
+    <div class="mt-1">{{ m.badge(goal.goal_class.value) }}</div>
+  </div>
+  <div class="border border-edge rounded p-3 bg-paper">
+    <div class="text-[11px] uppercase text-soft font-mono">priority</div>
+    <div class="mt-1 font-mono text-lg">{{ goal.priority }}</div>
+  </div>
+  <div class="border border-edge rounded p-3 bg-paper">
+    <div class="text-[11px] uppercase text-soft font-mono">origin</div>
+    <div class="mt-1 font-mono text-sm">{{ goal.origin.value }}{% if goal.originator %} · {{ goal.originator }}{% endif %}{% if goal.origin_subtype %} ({{ goal.origin_subtype.value }}){% endif %}</div>
+  </div>
+</div>
+
+{# Actions: approve/reject — только для PENDING_APPROVAL #}
+{% if not read_only and goal.status.value == 'pending_approval' %}
+  {% call m.decision_box('Awaiting operator approval') %}
+  <p class="text-sm mb-3">
+    Top-level self-цели проходят через operator-approval flow (см. § 6 архитектуры).
+    Approve переведёт в <code>pending</code>, reject — в <code>abandoned</code> с
+    причиной в metadata.
+  </p>
+  <div class="flex gap-3 items-center">
+    <form method="post" action="/goals/{{ goal.id }}/approve">
+      <button type="submit" class="bg-emerald-100 border border-emerald-300 text-emerald-900 px-3 py-1.5 rounded font-mono text-sm hover:bg-emerald-200">approve</button>
+    </form>
+    <form method="post" action="/goals/{{ goal.id }}/reject" class="flex gap-2">
+      <input type="text" name="reason" placeholder="reason"
+             class="border border-edge rounded px-2 py-1 font-mono text-sm bg-cream min-w-[18em]">
+      <button type="submit" class="bg-red-100 border border-red-300 text-red-900 px-3 py-1.5 rounded font-mono text-sm hover:bg-red-200">reject</button>
+    </form>
+  </div>
+  {% endcall %}
+{% endif %}
+
+{{ m.section_title('Predicate of success') }}
+{{ m.json_block(goal.predicate_of_success.model_dump(mode='json'), '20em') }}
+
+{{ m.section_title('Budget') }}
+{{ m.json_block(goal.budget.model_dump(mode='json'), '15em') }}
+
+{% if parent %}
+  {{ m.section_title('Parent goal') }}
+  <a href="/goals/{{ parent.id }}" class="block border border-edge rounded p-3 hover:bg-paper">
+    <div class="flex gap-2 items-baseline mb-1">
+      {{ m.badge(parent.goal_class.value) }}
+      {{ m.badge(parent.status.value, parent.status.value) }}
+      <span class="font-mono text-xs text-soft">{{ parent.id|short_uuid }}…</span>
+    </div>
+    <div class="text-sm">{{ parent.description }}</div>
+  </a>
+{% endif %}
+
+{% if depends_on %}
+  {{ m.section_title('Depends on (DAG)') }}
+  <ul class="space-y-1">
+    {% for d in depends_on %}
+      <li class="border border-edge rounded p-2">
+        <a href="/goals/{{ d.id }}" class="text-link hover:underline font-mono text-xs">{{ d.id|short_uuid }}</a>
+        — {{ d.description }}
+      </li>
+    {% endfor %}
+  </ul>
+{% endif %}
+
+{{ m.section_title('Decomposition tree', (tree|length - 1)|string + ' descendants' if (tree|length > 1) else 'no children') }}
+{% if tree|length > 1 %}
+  <ul class="font-mono text-sm">
+    {% for node in tree %}
+      <li class="py-1 border-b border-edge/40 last:border-0">
+        <span class="text-soft">{{ '·   ' * node.depth }}</span>
+        <a href="/goals/{{ node.goal.id }}" class="text-link hover:underline">
+          {{ '↳ ' if node.depth > 0 else '' }}{{ node.goal.id|short_uuid }}
+        </a>
+        {{ m.badge(node.goal.status.value, node.goal.status.value) }}
+        <span class="text-soft">prio={{ node.goal.priority }}</span>
+        <span class="text-ink">{{ node.goal.description }}</span>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  {{ m.empty_state('Эта цель — лист дерева, потомков нет.') }}
+{% endif %}
+
+{% if goal.metadata %}
+  {{ m.section_title('Metadata') }}
+  {{ m.json_block(goal.metadata, '20em') }}
+{% endif %}
+
+{{ m.section_title('Raw JSON', 'pydantic model_dump') }}
+{{ m.json_block(goal.model_dump(mode='json'), '40em') }}
+{% endblock %}

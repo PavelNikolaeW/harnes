@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}tick journal{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-semibold mb-1">Tick journal</h1>
+<p class="text-soft text-sm mb-6">
+  Append-only лог событий метацикла. Используется для observability долгих
+  прогонов и recovery (см. v1.0 #35).
+</p>
+
+{# Stats summary #}
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+  {{ m.stat_card('Total events',    stats.total_events) }}
+  {{ m.stat_card('Total snapshots', stats.total_snapshots) }}
+  {{ m.stat_card('Tick range',
+      (stats.min_tick_id|string if stats.min_tick_id is not none else '?') + ' → ' + (stats.max_tick_id|string if stats.max_tick_id is not none else '?')) }}
+  {% if snapshot %}
+    {{ m.stat_card('Last snapshot', 'tick ' + snapshot.tick_id|string,
+        snapshot.timestamp|relative_time) }}
+  {% else %}
+    {{ m.stat_card('Last snapshot', '—', 'no snapshot yet') }}
+  {% endif %}
+</div>
+
+{% if snapshot %}
+  <div class="border border-edge rounded p-4 mb-6 bg-paper/40">
+    <div class="text-[11px] uppercase tracking-wide text-soft font-mono mb-2">Latest snapshot @ tick {{ snapshot.tick_id }}</div>
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm font-mono">
+      <div><span class="text-soft">processed</span> · {{ snapshot.processed_count }}</div>
+      <div><span class="text-soft">idle</span> · {{ snapshot.idle_count }}</div>
+      <div><span class="text-soft">errors</span> · {{ snapshot.error_count }}</div>
+      <div><span class="text-soft">self-spawn ticks</span> · {{ snapshot.ticks_with_self_spawn }}</div>
+      <div><span class="text-soft">total spawned</span> · {{ snapshot.total_self_spawned }}</div>
+    </div>
+  </div>
+{% endif %}
+
+{% if stats.by_event_type %}
+  <div class="border border-edge rounded p-4 mb-6">
+    <div class="text-[11px] uppercase tracking-wide text-soft font-mono mb-3">Counts by event_type</div>
+    <div class="flex flex-wrap gap-2">
+      {% for t, c in stats.by_event_type.items()|sort(attribute=1, reverse=true) %}
+        <a href="/journal?event_type={{ t }}" class="px-2 py-1 bg-paper border border-edge rounded font-mono text-xs hover:bg-cream">
+          <span class="text-accent">{{ t }}</span>: {{ c }}
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}
+
+{# Filters #}
+<form method="get" action="/journal" class="flex flex-wrap gap-3 items-end mb-4 p-3 bg-paper border border-edge rounded">
+  <label class="text-sm">
+    <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">event_type</span>
+    <select name="event_type" class="border border-edge rounded px-2 py-1 bg-cream font-mono text-sm min-w-[14em]">
+      <option value="">— all —</option>
+      {% for t in all_event_types %}
+        <option value="{{ t }}" {% if t == selected_event_type %}selected{% endif %}>{{ t }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="text-sm">
+    <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">tick_id</span>
+    <input type="number" name="tick_id" value="{{ selected_tick_id if selected_tick_id is not none else '' }}"
+           class="border border-edge rounded px-2 py-1 bg-cream font-mono text-sm w-28">
+  </label>
+  <label class="text-sm">
+    <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">limit</span>
+    <input type="number" name="limit" value="{{ limit }}" min="1" max="1000"
+           class="border border-edge rounded px-2 py-1 bg-cream font-mono text-sm w-24">
+  </label>
+  <button type="submit" class="bg-ink text-cream text-sm px-3 py-1 rounded font-mono">apply</button>
+  {% if selected_event_type or selected_tick_id %}
+    <a href="/journal" class="text-link text-xs hover:underline ml-2">clear</a>
+  {% endif %}
+</form>
+
+{{ m.section_title('Events', 'showing ' + events|length|string) }}
+
+{# Live feed via SSE #}
+<div class="mb-4 flex items-center gap-3" x-data="{ live: false }">
+  <label class="flex items-center gap-2 text-sm font-mono cursor-pointer">
+    <input type="checkbox" x-model="live"
+           @change="
+             if (live) {
+               window._sse = new EventSource('/journal/sse');
+               window._sse.addEventListener('event', e => {
+                 const p = JSON.parse(e.data);
+                 const ul = document.getElementById('live-feed');
+                 const li = document.createElement('li');
+                 li.className = 'grid grid-cols-[auto_auto_1fr] gap-2 items-baseline text-[12.5px] font-mono py-1 border-b border-edge/60 bg-amber-50/40';
+                 li.innerHTML = `<span class='text-soft'>${p.ts.slice(0,19).replace('T',' ')}</span>` +
+                                `<span class='text-soft'>t=${p.tick_id}</span>` +
+                                `<span><span class='text-accent'>${p.event_type}</span> <span class='text-soft'>${p.payload}</span></span>`;
+                 ul.prepend(li);
+                 while (ul.children.length > 200) ul.removeChild(ul.lastChild);
+               });
+             } else if (window._sse) {
+               window._sse.close();
+               window._sse = null;
+             }
+           ">
+    <span>live feed (SSE)</span>
+  </label>
+  <span class="text-xs text-soft font-mono" x-show="live" x-cloak>polling /journal/sse every ~2s</span>
+</div>
+
+<ul id="live-feed" class="border border-edge bg-cream rounded divide-y divide-edge/40 max-h-[40em] overflow-auto"></ul>
+
+{% if events %}
+  <div class="border border-edge rounded overflow-hidden mt-4">
+    <table class="w-full text-sm">
+      <thead class="bg-paper text-soft">
+        <tr>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">timestamp</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">tick</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">event_type</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">payload</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in events %}
+          <tr class="border-t border-edge">
+            <td class="px-3 py-1.5 font-mono text-xs text-soft">{{ e.timestamp|short_dt }}</td>
+            <td class="px-3 py-1.5 font-mono text-right">{{ e.tick_id }}</td>
+            <td class="px-3 py-1.5 font-mono text-accent">{{ e.event_type }}</td>
+            <td class="px-3 py-1.5 font-mono text-xs text-ink">{{ e.payload_json[:200] }}{% if e.payload_json|length > 200 %}…{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  {{ m.empty_state('Журнал пуст. Запусти run-loop в agent-контейнере.') }}
+{% endif %}
+{% endblock %}

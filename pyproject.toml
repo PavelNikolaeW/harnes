@@ -41,6 +41,17 @@ dependencies = [
     "datasets>=2.20",
 ]
 
+[project.optional-dependencies]
+# Admin-консоль (отдельный сервис, см. src/harnes/webui и webui/Dockerfile).
+# Не тянется в agent-image — там не нужна.
+webui = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "jinja2>=3.1",
+    "sse-starlette>=2.0",
+    "python-multipart>=0.0.7",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",
@@ -65,6 +76,13 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "N", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# webui — FastAPI идиома (Depends() в defaults) триггерит B008.
+# 0.0.0.0 bind в docker-сервисе намеренно (S104).
+# RUF001/RUF003 — смешанный кирилл./латин. в идентификаторах и комментариях
+# нормален для русскоязычного проекта.
+"src/harnes/webui/**/*.py" = ["B008", "B904", "S104", "RUF001", "RUF002", "RUF003"]
 
 [tool.mypy]
 python_version = "3.12"

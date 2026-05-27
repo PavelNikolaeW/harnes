@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}trajectories{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-semibold mb-1">Trajectories <span class="text-soft font-normal text-base font-mono">— last {{ limit }}</span></h1>
+<p class="text-soft text-sm mb-4">
+  Каждая запись — один прогон ReAct'а под листовую цель. См. § 7 архитектуры.
+</p>
+
+<form method="get" action="/trajectories" class="flex flex-wrap gap-3 items-end mb-6 p-3 bg-paper border border-edge rounded">
+  <label class="text-sm">
+    <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">status</span>
+    <select name="status" class="border border-edge rounded px-2 py-1 bg-cream font-mono text-sm min-w-[12em]">
+      <option value="">— all —</option>
+      {% for s in all_statuses %}
+        <option value="{{ s }}" {% if s == selected_status %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="text-sm">
+    <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">limit</span>
+    <input type="number" name="limit" value="{{ limit }}" min="1" max="500"
+           class="border border-edge rounded px-2 py-1 bg-cream font-mono text-sm w-24">
+  </label>
+  <button type="submit" class="bg-ink text-cream text-sm px-3 py-1 rounded font-mono">apply</button>
+</form>
+
+{% if trajectories %}
+  <div class="border border-edge rounded overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-paper text-soft">
+        <tr>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">id</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">status</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">goal</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">tokens</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">latency</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">started</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">ended</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in trajectories %}
+          <tr class="border-t border-edge hover:bg-paper/60">
+            <td class="px-3 py-2 font-mono text-xs">
+              <a href="/trajectories/{{ t.id }}" class="text-link hover:underline">{{ t.id[:8] }}…</a>
+            </td>
+            <td class="px-3 py-2">{{ m.badge(t.status, t.status) }}</td>
+            <td class="px-3 py-2 font-mono text-xs">
+              <a href="/goals/{{ t.goal_id }}" class="text-link hover:underline">{{ t.goal_id[:8] }}…</a>
+            </td>
+            <td class="px-3 py-2 font-mono text-right">{{ t.total_cost_tokens }}</td>
+            <td class="px-3 py-2 font-mono text-right">{{ '%.2fs' % t.total_cost_latency }}</td>
+            <td class="px-3 py-2 font-mono text-xs text-soft">{{ t.started_at|short_dt }}</td>
+            <td class="px-3 py-2 font-mono text-xs text-soft">{{ t.ended_at|short_dt if t.ended_at else '—' }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  {{ m.empty_state('Траекторий нет. ReAct ещё не запускался — попробуй `docker compose run agent` или `uv run python -m harnes.operator run-tick --real`.') }}
+{% endif %}
+{% endblock %}

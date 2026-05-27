@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}new goal{% endblock %}
+
+{% block content %}
+<div class="text-xs font-mono text-soft mb-1">
+  <a href="/goals" class="text-link hover:underline">← all goals</a>
+</div>
+
+<h1 class="text-2xl font-semibold mb-1">New goal</h1>
+<p class="text-soft text-sm mb-6">
+  Эквивалент CLI <code class="bg-paper px-1 rounded">harnes enter-goal</code>.
+  Цель создаётся в статусе <code class="bg-paper px-1 rounded">pending</code> и попадает
+  в очередь арбитража на следующем тике метацикла.
+</p>
+
+<form method="post" action="/goals"
+      class="space-y-4 max-w-[640px] border border-edge bg-paper/40 p-5 rounded">
+
+  <label class="block">
+    <span class="text-xs uppercase tracking-wide text-soft font-mono">Description</span>
+    <textarea name="description" required rows="3"
+              class="w-full mt-1 border border-edge rounded px-3 py-2 bg-cream font-mono text-sm"
+              placeholder="что должно произойти, чтобы цель считалась достигнутой"></textarea>
+  </label>
+
+  <div class="grid grid-cols-2 gap-3">
+    <label class="block">
+      <span class="text-xs uppercase tracking-wide text-soft font-mono">Class</span>
+      <select name="goal_class" class="w-full mt-1 border border-edge rounded px-2 py-1.5 bg-cream font-mono text-sm">
+        {% for c in all_classes %}
+          <option value="{{ c }}" {% if c == 'task' %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="block">
+      <span class="text-xs uppercase tracking-wide text-soft font-mono">Priority</span>
+      <input type="number" name="priority" value="0"
+             class="w-full mt-1 border border-edge rounded px-2 py-1.5 bg-cream font-mono text-sm">
+    </label>
+  </div>
+
+  <fieldset class="border border-edge rounded p-3"
+            x-data="{ kind: 'judge' }">
+    <legend class="text-xs uppercase tracking-wide text-soft font-mono px-1">Predicate of success</legend>
+    <div class="flex gap-3 mt-1 mb-2 text-sm">
+      {% for k in predicate_kinds %}
+        <label class="flex items-center gap-1 cursor-pointer">
+          <input type="radio" name="predicate_kind" value="{{ k }}"
+                 {% if k == 'judge' %}checked{% endif %}
+                 @change="kind = $event.target.value">
+          <span class="font-mono">{{ k }}</span>
+        </label>
+      {% endfor %}
+    </div>
+    <div x-show="kind === 'judge'">
+      <label class="block text-sm">
+        <span class="text-xs text-soft">criterion (NL для LLM-судьи)</span>
+        <input type="text" name="criterion" placeholder="e.g. файл X создан и содержит Y"
+               class="w-full mt-1 border border-edge rounded px-2 py-1 bg-cream font-mono text-sm">
+      </label>
+    </div>
+    <div x-show="kind === 'structural'" class="text-xs text-soft font-mono">
+      structural: создаст predicate с <code>expected_schema = {"type": "object"}</code>.
+      Уточнить через CLI/код — структуру schema'ы.
+    </div>
+    <div x-show="kind === 'state_change'" class="text-xs text-soft font-mono">
+      state_change: placeholder. Заполни check_tool_id и expected_outcome через CLI/код.
+    </div>
+  </fieldset>
+
+  <div class="flex gap-3 items-center pt-2">
+    <button type="submit" class="bg-accent text-cream px-4 py-2 rounded font-mono text-sm hover:opacity-90">create goal</button>
+    <a href="/goals" class="text-link text-sm hover:underline">cancel</a>
+  </div>
+</form>
+
+{% call m.decision_box('Note') %}
+<p class="text-sm">
+  Цель попадает в очередь после создания, но фактически обрабатывается только
+  если запущен <code>run-loop</code> в agent-контейнере. Через webui сейчас нельзя
+  триггерить тик — управление циклом остаётся за CLI.
+</p>
+{% endcall %}
+{% endblock %}

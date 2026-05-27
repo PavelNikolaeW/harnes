@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}{{ agent_name }} · dashboard{% endblock %}
+
+{% block content %}
+<div class="flex items-baseline justify-between mb-6">
+  <div>
+    <h1 class="text-2xl font-semibold">{{ agent_name }} <span class="text-soft font-normal">— admin console</span></h1>
+    <p class="text-soft text-sm mt-1">
+      Meta-cycle over ReAct · v0 stack · LLM: <code class="bg-paper px-1 rounded">{{ settings.llm.model }}</code>
+    </p>
+  </div>
+  {% if pending_approval %}
+    <a href="/goals?status=pending_approval"
+       class="bg-amber-100 border border-amber-300 text-amber-900 text-sm px-3 py-1.5 rounded font-mono hover:bg-amber-200">
+      {{ pending_approval|length }} pending approval →
+    </a>
+  {% endif %}
+</div>
+
+{# ---------- Top stats row ---------- #}
+
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+  {{ m.stat_card('Active goals',     by_status.get('active', 0)) }}
+  {{ m.stat_card('Pending',          by_status.get('pending', 0), 'awaiting arbitration') }}
+  {{ m.stat_card('Pending approval', by_status.get('pending_approval', 0), 'self-goals → operator') }}
+  {{ m.stat_card('Done / Failed',    (by_status.get('done', 0)|string) + ' / ' + (by_status.get('failed', 0)|string)) }}
+</div>
+
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+  {% set jstats = journal_stats %}
+  {{ m.stat_card('Ticks in journal', jstats.total_events, 'events across run-loop') }}
+  {{ m.stat_card('Self-spawned goals', spawned_total, 'standing + reflect inquiries') }}
+  {{ m.stat_card('Goals completed (journal)', done_total) }}
+  {{ m.stat_card('Goals failed (journal)', fail_total) }}
+</div>
+
+{# ---------- Two-column body ---------- #}
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+  {# Active goals + pending approval #}
+  <div class="lg:col-span-1">
+    {{ m.section_title('Active goals') }}
+    {% if active_goals %}
+      <ul class="space-y-2">
+        {% for g in active_goals %}
+          <li class="border border-edge rounded p-3 bg-cream">
+            <div class="flex items-baseline gap-2 mb-1">
+              {{ m.badge(g.goal_class.value, g.status.value) }}
+              <span class="text-xs text-soft font-mono">prio={{ g.priority }}</span>
+            </div>
+            <a href="/goals/{{ g.id }}" class="text-link hover:underline text-sm">
+              {{ g.description }}
+            </a>
+            <div class="text-[11px] text-soft font-mono mt-1">{{ g.id|short_uuid }}…</div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      {{ m.empty_state('Активных целей нет. Создай через /goals/new или CLI enter-goal.') }}
+    {% endif %}
+
+    {% if pending_approval %}
+      {{ m.section_title('Awaiting approval', 'top-level self-goals') }}
+      <ul class="space-y-2">
+        {% for g in pending_approval %}
+          <li class="border border-amber-200 bg-amber-50 rounded p-3">
+            <div class="flex items-baseline gap-2 mb-1">
+              {{ m.badge('self', extra_class='bg-amber-100 text-amber-900 border-amber-200') }}
+              <span class="text-xs text-soft font-mono">{{ g.originator }}</span>
+            </div>
+            <a href="/goals/{{ g.id }}" class="text-link hover:underline text-sm">
+              {{ g.description }}
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </div>
+
+  {# Recent ticks (SSE-livable) #}
+  <div class="lg:col-span-1">
+    {{ m.section_title('Recent tick events',
+        ('snapshot @ tick ' + (snapshot.tick_id|string)) if snapshot else 'no snapshot yet') }}
+    {% if recent_events %}
+      <ul class="space-y-1 max-h-[28em] overflow-auto pr-1">
+        {% for e in recent_events %}
+          <li class="grid grid-cols-[auto_auto_1fr] gap-2 items-baseline text-[12.5px] font-mono py-1 border-b border-edge/60 last:border-0">
+            <span class="text-soft">{{ e.timestamp|short_dt }}</span>
+            <span class="text-soft">t={{ e.tick_id }}</span>
+            <span class="text-ink">
+              <span class="text-accent">{{ e.event_type }}</span>
+              {% if e.payload_json and e.payload_json != '{}' %}
+                <span class="text-soft">— {{ e.payload_json[:120] }}{% if e.payload_json|length > 120 %}…{% endif %}</span>
+              {% endif %}
+            </span>
+          </li>
+        {% endfor %}
+      </ul>
+      <div class="text-xs text-soft mt-2">
+        <a href="/journal" class="text-link hover:underline">→ all events</a>
+      </div>
+    {% else %}
+      {{ m.empty_state('Журнал пуст. Запусти run-loop в agent-контейнере: `docker compose run --rm agent`.') }}
+    {% endif %}
+  </div>
+
+  {# Recent trajectories #}
+  <div class="lg:col-span-1">
+    {{ m.section_title('Recent trajectories') }}
+    {% if recent_trajs %}
+      <ul class="space-y-2">
+        {% for t in recent_trajs %}
+          <li class="border border-edge rounded p-2 text-[12.5px] font-mono">
+            <div class="flex justify-between items-baseline">
+              <a href="/trajectories/{{ t.id }}" class="text-link hover:underline">
+                {{ t.id[:8] }}…
+              </a>
+              {{ m.badge(t.status, t.status) }}
+            </div>
+            <div class="text-soft mt-1">goal={{ t.goal_id[:8] }}… · tokens={{ t.total_cost_tokens }}</div>
+            <div class="text-soft">started {{ t.started_at|relative_time }}</div>
+          </li>
+        {% endfor %}
+      </ul>
+      <div class="text-xs text-soft mt-2">
+        <a href="/trajectories" class="text-link hover:underline">→ all trajectories</a>
+      </div>
+    {% else %}
+      {{ m.empty_state('Траекторий нет. ReAct ещё не запускался.') }}
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}trajectory {{ meta.id[:8] }}{% endblock %}
+
+{% block content %}
+<div class="text-xs font-mono text-soft mb-1">
+  <a href="/trajectories" class="text-link hover:underline">← all trajectories</a>
+</div>
+
+<div class="flex items-baseline gap-3 mb-2">
+  <h1 class="text-2xl font-semibold font-mono">trajectory {{ meta.id[:8] }}…</h1>
+  {{ m.badge(meta.status, meta.status) }}
+</div>
+
+<div class="text-xs font-mono text-soft mb-6">
+  {{ meta.id }}
+  · started {{ meta.started_at|short_dt }}
+  · ended {{ meta.ended_at|short_dt if meta.ended_at else '—' }}
+</div>
+
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+  {{ m.stat_card('Steps', steps|length) }}
+  {{ m.stat_card('Total tokens', total_tokens) }}
+  {{ m.stat_card('Total latency', '%.2fs' % total_latency) }}
+  {{ m.stat_card('Goal', meta.goal_id[:8] + '…') }}
+</div>
+
+{% if goal %}
+  <div class="border border-edge rounded p-3 mb-6 bg-paper/40">
+    <div class="text-[11px] uppercase tracking-wide text-soft font-mono mb-1">Goal</div>
+    <a href="/goals/{{ goal.id }}" class="text-link hover:underline text-sm">
+      {{ goal.description }}
+    </a>
+    <div class="flex gap-2 mt-2">
+      {{ m.badge(goal.goal_class.value) }}
+      {{ m.badge(goal.status.value, goal.status.value) }}
+    </div>
+  </div>
+{% endif %}
+
+{# Step type counts #}
+{% if type_counts %}
+  <div class="flex flex-wrap gap-2 mb-6">
+    {% for t, c in type_counts.items() %}
+      <span class="px-2 py-1 bg-paper border border-edge rounded font-mono text-xs">
+        <span class="text-accent">{{ t }}</span>: {{ c }}
+      </span>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{{ m.section_title('Timeline', steps|length|string + ' steps') }}
+
+{% if steps %}
+  <ol class="space-y-3">
+    {% for s in steps %}
+      {% set c = s.content %}
+      <li class="border-l-4 {{ s.step_type|step_color }} pl-3 py-2 border-y border-r border-edge rounded">
+        <div class="flex items-baseline gap-3 mb-2">
+          <span class="text-xs font-mono text-soft">{{ loop.index }}</span>
+          <span class="font-mono text-sm font-semibold text-accent">{{ s.step_type }}</span>
+          <span class="text-xs font-mono text-soft">{{ s.timestamp|short_dt }}</span>
+          <span class="text-xs font-mono text-soft">{{ s.cost_tokens or 0 }}t · {{ '%.2fs' % (s.cost_latency or 0) }}</span>
+        </div>
+
+        {# Per-type rich view #}
+        {% if s.step_type == 'thought' %}
+          <div class="text-sm whitespace-pre-wrap leading-relaxed">{{ c.text }}</div>
+          {% if c.intent %}<div class="text-xs text-soft font-mono mt-1">intent: {{ c.intent }}</div>{% endif %}
+
+        {% elif s.step_type == 'plan' %}
+          <div class="text-sm italic text-soft mb-2">{{ c.rationale }}</div>
+          <ol class="list-decimal ml-5 text-sm space-y-1">
+            {% for p in c.steps_intended %}
+              <li>{{ p.description }}{% if p.expected_tool %} <code class="bg-paper px-1 rounded text-xs">{{ p.expected_tool }}</code>{% endif %}</li>
+            {% endfor %}
+          </ol>
+
+        {% elif s.step_type == 'action' %}
+          <div class="flex flex-wrap gap-2 items-baseline mb-1">
+            <code class="bg-paper border border-edge rounded px-2 py-0.5 text-sm font-mono">{{ c.tool_id }}</code>
+            {% if c.is_irreversible %}{{ m.badge('irreversible', 'failed') }}{% endif %}
+          </div>
+          {% if c.expected_outcome %}
+            <div class="text-xs text-soft mt-1">expected: {{ c.expected_outcome }}</div>
+          {% endif %}
+          {{ m.json_block(c.args, '15em') }}
+
+        {% elif s.step_type == 'observation' %}
+          {{ m.badge(c.outcome, c.outcome) }}
+          {% if c.error_detail %}
+            <div class="text-sm text-red-800 mt-1 font-mono">{{ c.error_detail }}</div>
+          {% endif %}
+          {% if c.payload is not none %}
+            {{ m.json_block(c.payload, '20em') }}
+          {% endif %}
+
+        {% elif s.step_type == 'critique' %}
+          {{ m.badge(c.verdict, c.verdict) }}
+          <div class="text-sm mt-2">{{ c.reasoning }}</div>
+          {% if c.recommendation %}
+            <div class="text-sm text-soft italic mt-1">recommendation: {{ c.recommendation }}</div>
+          {% endif %}
+          {% if c.risks_identified %}
+            <ul class="text-xs text-soft mt-2 list-disc ml-5">
+              {% for r in c.risks_identified %}<li>{{ r }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+
+        {% elif s.step_type == 'retry_note' %}
+          <div class="text-sm"><strong>failure:</strong> {{ c.failure_summary }}</div>
+          <div class="text-sm text-soft mt-1"><strong>plan:</strong> {{ c.recommendation_for_this_attempt }}</div>
+          <div class="text-xs font-mono text-soft mt-1">prev: {{ c.previous_trajectory_id }}</div>
+
+        {% else %}
+          {{ m.json_block(c, '20em') }}
+        {% endif %}
+
+      </li>
+    {% endfor %}
+  </ol>
+{% else %}
+  {{ m.empty_state('У траектории нет шагов (это нормально для stub-режима).') }}
+{% endif %}
+
+{% if final_state %}
+  {{ m.section_title('Final state') }}
+  {{ m.json_block(final_state, '30em') }}
+{% endif %}
+
+{% if meta.metadata_json and meta.metadata_json != '{}' %}
+  {{ m.section_title('Metadata') }}
+  {{ m.json_block(meta.metadata_json, '15em') }}
+{% endif %}
+{% endblock %}

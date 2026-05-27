@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}harnes · console{% endblock %}</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ink:    '#1a1a1a',
+            soft:   '#555',
+            cream:  '#fdfdfb',
+            paper:  '#f3f1ec',
+            decision:'#fffaee',
+            edge:   '#d8d4cc',
+            edgex:  '#888',
+            accent: '#664433',
+            accentSoft: '#aa7788',
+            link:   '#334455',
+          },
+          fontFamily: {
+            sans: ['-apple-system','BlinkMacSystemFont','"Segoe UI"','"Helvetica Neue"','Arial','sans-serif'],
+            mono: ['"SF Mono"','Menlo','Consolas','monospace'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <script src="https://unpkg.com/htmx-ext-sse@2.2.2"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+  <link rel="stylesheet" href="/static/css/app.css">
+  {% block head_extra %}{% endblock %}
+</head>
+<body class="bg-cream text-ink font-sans antialiased">
+
+<header class="border-b border-edge bg-cream">
+  <div class="max-w-[1240px] mx-auto px-6 py-4 flex items-center gap-6">
+    <a href="/dashboard" class="font-mono text-lg font-semibold text-accent hover:no-underline">
+      harnes · <span class="text-ink">Irida</span>
+    </a>
+    <nav class="flex gap-4 text-[14px] text-link">
+      <a href="/dashboard"     class="hover:underline">dashboard</a>
+      <a href="/goals"         class="hover:underline">goals</a>
+      <a href="/trajectories"  class="hover:underline">trajectories</a>
+      <a href="/journal"       class="hover:underline">journal</a>
+      <a href="/memory"        class="hover:underline">memory</a>
+      <a href="/health"        class="hover:underline">health</a>
+    </nav>
+    <div class="ml-auto text-xs text-soft font-mono">
+      research console · v0
+    </div>
+  </div>
+</header>
+
+<main class="max-w-[1240px] mx-auto px-6 py-6">
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="border-t border-edge mt-12 py-6 text-center text-xs text-soft font-mono">
+  <p>
+    {{ "См. agent_architecture.html для полной картины архитектуры." }}
+  </p>
+</footer>
+
+<script src="/static/js/app.js" defer></script>
+{% block body_extra %}{% endblock %}
+</body>
+</html>

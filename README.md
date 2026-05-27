@@ -50,3 +50,14 @@ uv run pytest
 
 В v0 — внешний `ll-router` на `http://192.168.0.111:8000/v1`,
 модель `gemma-26b-a4b`. Подключение через LiteLLM.
+
+## Admin-консоль (webui)
+
+Отдельный сервис в том же compose. Read-friendly UI для наблюдения за
+агентом + минимальное управление целями (approve/reject/create). См.
+`webui/README.md`.
+
+```bash
+docker compose up -d webui
+open http://127.0.0.1:8080
+```

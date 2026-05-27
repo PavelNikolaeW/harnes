@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}memory explorer{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-semibold mb-1">Memory explorer</h1>
+<p class="text-soft text-sm mb-4">
+  Поиск по трём слоям памяти (см. § 13). Episodic — keyword scoring по step content.
+  Semantic — vector search (требует embeddings).
+  World — Graphiti search по KG.
+</p>
+
+{# Tabs #}
+<div class="flex gap-1 border-b border-edge mb-4">
+  {% for t in ['episodic', 'semantic', 'world'] %}
+    <a href="/memory?type_={{ t }}&q={{ q }}&k={{ k }}"
+       class="px-4 py-2 font-mono text-sm border-b-2
+              {% if type_ == t %}border-accent text-accent{% else %}border-transparent text-soft hover:text-ink{% endif %}">
+      {{ t }}
+      {% if t == 'semantic' and not semantic_available %}
+        <span class="ml-1 text-xs">(off)</span>
+      {% elif t == 'world' and not world_available %}
+        <span class="ml-1 text-xs">(off)</span>
+      {% endif %}
+    </a>
+  {% endfor %}
+</div>
+
+<form method="get" action="/memory" class="flex gap-2 items-end mb-6">
+  <input type="hidden" name="type_" value="{{ type_ }}">
+  <label class="flex-1">
+    <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">query</span>
+    <input type="text" name="q" value="{{ q }}" placeholder="что искать в {{ type_ }}-памяти"
+           class="w-full border border-edge rounded px-3 py-1.5 bg-cream font-mono text-sm">
+  </label>
+  <label class="text-sm">
+    <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">k</span>
+    <input type="number" name="k" value="{{ k }}" min="1" max="200"
+           class="border border-edge rounded px-2 py-1.5 bg-cream font-mono text-sm w-20">
+  </label>
+  <button type="submit" class="bg-accent text-cream px-3 py-1.5 rounded font-mono text-sm">search</button>
+</form>
+
+{% if error %}
+  <div class="border border-red-200 bg-red-50 text-red-900 rounded p-3 mb-4 text-sm font-mono">
+    ⚠ {{ error }}
+  </div>
+{% endif %}
+
+{# Type-specific results rendering #}
+{% if type_ == 'episodic' %}
+  {% if terms %}
+    <div class="text-xs text-soft font-mono mb-3">
+      tokens extracted: [{{ terms|join(', ') }}]
+    </div>
+  {% elif not q %}
+    <div class="text-xs text-soft font-mono mb-3">
+      Пустой запрос → последние {{ k }} шагов (recent_steps).
+    </div>
+  {% endif %}
+
+  {% if results %}
+    <ol class="space-y-2">
+      {% for r in results %}
+        <li class="border-l-4 {{ r.step_type|step_color }} pl-3 py-2 border-y border-r border-edge rounded">
+          <div class="flex items-baseline gap-3 text-xs font-mono text-soft mb-1">
+            <span class="text-accent">{{ r.step_type }}</span>
+            <span>{{ r.timestamp|short_dt }}</span>
+            <a href="/trajectories/{{ r.trajectory_id }}" class="text-link hover:underline">traj {{ r.trajectory_id[:8] }}</a>
+            <a href="/goals/{{ r.goal_id }}" class="text-link hover:underline">goal {{ r.goal_id[:8] }}</a>
+          </div>
+          {{ m.json_block(r.content, '12em') }}
+        </li>
+      {% endfor %}
+    </ol>
+  {% else %}
+    {{ m.empty_state('Ничего не найдено.' if q else 'Episodic store пуст.') }}
+  {% endif %}
+
+{% elif type_ == 'semantic' %}
+  {% if not semantic_available %}
+    {{ m.empty_state('Qdrant недоступен — webui не смог подключиться. См. health-страницу.') }}
+  {% elif not q.strip() %}
+    {{ m.empty_state('Введи query — поиск по vector store требует текст.') }}
+  {% elif results %}
+    <ol class="space-y-2">
+      {% for r in results %}
+        <li class="border border-edge rounded p-3 bg-paper/40">
+          <div class="flex items-baseline justify-between text-xs font-mono text-soft mb-1">
+            <span>id: {{ r.id }}</span>
+            <span>score: {{ '%.3f' % (r.score or 0) }}</span>
+          </div>
+          {{ m.json_block(r.payload or {}, '15em') }}
+        </li>
+      {% endfor %}
+    </ol>
+  {% else %}
+    {{ m.empty_state('Ничего не найдено.') }}
+  {% endif %}
+
+{% elif type_ == 'world' %}
+  {% if not world_available %}
+    {{ m.empty_state('Neo4j+Graphiti недоступен — webui не смог подключиться. См. health-страницу.') }}
+  {% elif not q.strip() %}
+    {{ m.empty_state('Введи query — поиск по KG требует текст. Graphiti делает hybrid retrieval по узлам и фактам.') }}
+  {% elif results %}
+    <ol class="space-y-2">
+      {% for r in results %}
+        <li class="border border-edge rounded p-3 bg-paper/40">
+          <div class="flex items-baseline gap-2 text-xs font-mono text-soft mb-1">
+            <span class="text-accent">{{ r.labels|join(', ') }}</span>
+            <span>{{ r.id }}</span>
+          </div>
+          {{ m.json_block(r.properties or {}, '15em') }}
+        </li>
+      {% endfor %}
+    </ol>
+  {% else %}
+    {{ m.empty_state('Ничего не найдено.') }}
+  {% endif %}
+{% endif %}
+
+{% call m.decision_box('Что показывается в каждой вкладке') %}
+<ul class="text-sm space-y-1">
+  <li><strong>Episodic</strong> (LanceDB) — keyword scoring по полному content шагов; recency-fallback при пустых стопвордовых query.</li>
+  <li><strong>Semantic</strong> (Qdrant) — BGE-M3 embedding query, cosine top-k. Требует поднятый qdrant и доступные embeddings.</li>
+  <li><strong>World</strong> (Graphiti на Neo4j) — hybrid semantic+BM25 поиск по узлам и фактам KG. Требует поднятый neo4j + LLM router для embedder.</li>
+</ul>
+{% endcall %}
+{% endblock %}

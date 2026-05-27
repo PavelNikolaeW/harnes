@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+
+{% block title %}goals{% endblock %}
+
+{% block content %}
+<div class="flex items-baseline justify-between mb-4">
+  <h1 class="text-2xl font-semibold">Goals <span class="text-soft font-normal text-base font-mono">— {{ goals|length }}</span></h1>
+  {% if not read_only %}
+    <a href="/goals/new" class="bg-accent text-cream text-sm px-3 py-1.5 rounded font-mono hover:opacity-90">+ new goal</a>
+  {% endif %}
+</div>
+
+{# Filters #}
+<form method="get" action="/goals" class="flex flex-wrap gap-3 items-end mb-6 p-3 bg-paper border border-edge rounded">
+  <label class="text-sm">
+    <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">status</span>
+    <select name="status" class="border border-edge rounded px-2 py-1 bg-cream font-mono text-sm min-w-[12em]">
+      <option value="">— all —</option>
+      {% for s in all_statuses %}
+        <option value="{{ s }}" {% if s == selected_status %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="text-sm">
+    <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">class</span>
+    <select name="goal_class" class="border border-edge rounded px-2 py-1 bg-cream font-mono text-sm min-w-[10em]">
+      <option value="">— all —</option>
+      {% for c in all_classes %}
+        <option value="{{ c }}" {% if c == selected_class %}selected{% endif %}>{{ c }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="text-sm">
+    <span class="block text-[11px] uppercase text-soft tracking-wide font-mono">origin</span>
+    <select name="origin" class="border border-edge rounded px-2 py-1 bg-cream font-mono text-sm min-w-[10em]">
+      <option value="">— all —</option>
+      {% for o in all_origins %}
+        <option value="{{ o }}" {% if o == selected_origin %}selected{% endif %}>{{ o }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button type="submit" class="bg-ink text-cream text-sm px-3 py-1 rounded font-mono">apply</button>
+  {% if selected_status or selected_class or selected_origin %}
+    <a href="/goals" class="text-link text-xs hover:underline ml-2">clear</a>
+  {% endif %}
+</form>
+
+{% if goals %}
+  <div class="border border-edge rounded overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-paper text-soft">
+        <tr>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">id</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">class</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">status</th>
+          <th class="text-right px-3 py-2 font-mono text-[11px] uppercase">prio</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">origin</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">description</th>
+          <th class="text-left px-3 py-2 font-mono text-[11px] uppercase">updated</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for g in goals %}
+          <tr class="border-t border-edge hover:bg-paper/60">
+            <td class="px-3 py-2 font-mono text-xs">
+              <a href="/goals/{{ g.id }}" class="text-link hover:underline">{{ g.id|short_uuid }}</a>
+            </td>
+            <td class="px-3 py-2">{{ m.badge(g.goal_class.value) }}</td>
+            <td class="px-3 py-2">{{ m.badge(g.status.value, g.status.value) }}</td>
+            <td class="px-3 py-2 font-mono text-right">{{ g.priority }}</td>
+            <td class="px-3 py-2 font-mono text-xs text-soft">{{ g.origin.value }}{% if g.originator %}<span class="text-soft">:{{ g.originator }}</span>{% endif %}</td>
+            <td class="px-3 py-2"><a href="/goals/{{ g.id }}" class="text-link hover:underline">{{ g.description }}</a></td>
+            <td class="px-3 py-2 font-mono text-xs text-soft">{{ g.updated_at|relative_time }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  {{ m.empty_state('Нет целей под выбранным фильтром.') }}
+{% endif %}
+{% endblock %}
