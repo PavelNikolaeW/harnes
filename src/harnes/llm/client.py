@@ -150,6 +150,88 @@ def health_check() -> bool:
         return False
 
 
+def get_router_load_status(
+    api_base: str | None = None,
+    timeout_s: float = 3.0,
+) -> list[dict[str, Any]]:
+    """Per-model снимок состояния роутера (см. docs/router_roadmap.md R3).
+
+    GET /v1/models/load_status → list of {id, backend_type (gpu|cpu), kind,
+    health_ok, ...}. Полезно при boot run-loop'а — поймать ситуацию когда
+    модель fallback'нулась на CPU (case 2026-05-26: gemma-26b-a4b-cpu вместо
+    gpu варианта, latency упала с 146 t/s до ~12 t/s — мы это не сразу заметили).
+
+    Возвращает [] если endpoint недоступен или вернул ошибку. Не raise.
+
+    Args:
+        api_base: например "http://192.168.0.111:8000/v1". None = из settings.
+        timeout_s: HTTP timeout.
+
+    Returns:
+        list of dicts с per-model информацией, или [] на ошибке.
+    """
+    import httpx
+
+    if api_base is None:
+        api_base = get_settings().llm.api_base
+    url = f"{api_base.rstrip('/')}/models/load_status"
+
+    try:
+        with httpx.Client(timeout=timeout_s) as client:
+            r = client.get(url)
+            if r.status_code != 200:
+                return []
+            data = r.json()
+            entries = data.get("data") if isinstance(data, dict) else None
+            return list(entries) if isinstance(entries, list) else []
+    except Exception as exc:  # noqa: BLE001
+        log.debug("llm.load_status.failed", error=str(exc))
+        return []
+
+
+def warn_if_models_on_cpu(
+    expected_tier_models: list[str] | None = None,
+    api_base: str | None = None,
+) -> list[str]:
+    """Warns если какие-то из tier-моделей крутятся на CPU а не GPU.
+
+    Используется при старте run-loop'а — поймать случай 2026-05-26 (gemma fallback
+    на CPU после того как админ забрал одну карту → агент тормозил в 12 раз и
+    мы это не сразу заметили).
+
+    Args:
+        expected_tier_models: список model_id которые ожидаются на GPU. None =
+          settings.llm.tiers values.
+        api_base: см. get_router_load_status.
+
+    Returns:
+        список model_id которые реально не на GPU (для информирования оператора).
+        Пустой список = всё ОК или endpoint недоступен.
+    """
+    if expected_tier_models is None:
+        expected_tier_models = list(set(get_settings().llm.tiers.values()))
+
+    entries = get_router_load_status(api_base=api_base)
+    if not entries:
+        return []
+
+    on_cpu: list[str] = []
+    for entry in entries:
+        mid = entry.get("id")
+        if mid not in expected_tier_models:
+            continue
+        backend_type = entry.get("backend_type")
+        if backend_type and backend_type != "gpu":
+            on_cpu.append(str(mid))
+            log.warning(
+                "llm.model.not_on_gpu",
+                model_id=mid,
+                backend_type=backend_type,
+                hint="latency будет ×10-30 хуже; проверь nvidia-smi на роутере",
+            )
+    return on_cpu
+
+
 def is_router_reachable(
     api_base: str | None = None,
     timeout_s: float = 2.0,

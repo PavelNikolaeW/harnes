@@ -157,3 +157,121 @@ def test_models_url_keeps_v1_suffix(monkeypatch: pytest.MonkeyPatch) -> None:
 
     is_router_reachable("http://192.168.0.111:8000/v1")
     assert any(u == "http://192.168.0.111:8000/v1/models" for u in urls)
+
+
+# ---------- get_router_load_status / warn_if_models_on_cpu (R3) ----------
+
+
+from harnes.llm import get_router_load_status, warn_if_models_on_cpu  # noqa: E402
+
+
+class _MockResponseJson:
+    def __init__(self, status_code: int, payload: dict) -> None:
+        self.status_code = status_code
+        self._payload = payload
+
+    def json(self):
+        return self._payload
+
+
+def test_get_load_status_returns_entries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """200 + valid JSON → list of model entries."""
+    payload = {
+        "object": "list",
+        "data": [
+            {"id": "gemma-26b-a4b", "backend_type": "gpu", "kind": "chat", "health_ok": True},
+            {"id": "gemma-26b-a4b-cpu", "backend_type": "cpu", "kind": "chat", "health_ok": True},
+        ],
+    }
+
+    def fake_get(self, url, **kwargs):
+        assert url.endswith("/models/load_status")
+        return _MockResponseJson(200, payload)
+
+    monkeypatch.setattr("httpx.Client.get", fake_get)
+
+    entries = get_router_load_status("http://router.test:8000/v1")
+    assert len(entries) == 2
+    assert entries[0]["id"] == "gemma-26b-a4b"
+    assert entries[1]["backend_type"] == "cpu"
+
+
+def test_get_load_status_empty_on_404(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_get(self, url, **kwargs):
+        return _MockResponseJson(404, {})
+
+    monkeypatch.setattr("httpx.Client.get", fake_get)
+    assert get_router_load_status("http://router.test:8000/v1") == []
+
+
+def test_get_load_status_empty_on_exception(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_get(self, url, **kwargs):
+        raise httpx.ConnectError("nope")
+
+    monkeypatch.setattr("httpx.Client.get", fake_get)
+    assert get_router_load_status("http://router.test:8000/v1") == []
+
+
+def test_warn_if_models_on_cpu_detects(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Случай 2026-05-26: gemma-26b-a4b ожидается на GPU, но реально на CPU."""
+    payload = {
+        "data": [
+            {"id": "gemma-26b-a4b", "backend_type": "cpu", "kind": "chat"},
+            {"id": "qwen-35b", "backend_type": "gpu", "kind": "chat"},
+        ],
+    }
+
+    def fake_get(self, url, **kwargs):
+        return _MockResponseJson(200, payload)
+
+    monkeypatch.setattr("httpx.Client.get", fake_get)
+
+    on_cpu = warn_if_models_on_cpu(
+        expected_tier_models=["gemma-26b-a4b", "qwen-35b"]
+    )
+    assert on_cpu == ["gemma-26b-a4b"]
+
+
+def test_warn_if_models_on_cpu_all_on_gpu(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = {
+        "data": [
+            {"id": "gemma-26b-a4b", "backend_type": "gpu"},
+        ],
+    }
+
+    def fake_get(self, url, **kwargs):
+        return _MockResponseJson(200, payload)
+
+    monkeypatch.setattr("httpx.Client.get", fake_get)
+    assert warn_if_models_on_cpu(expected_tier_models=["gemma-26b-a4b"]) == []
+
+
+def test_warn_if_models_on_cpu_endpoint_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Если load_status endpoint недоступен — НЕ warnить (нечем подтвердить)."""
+    def fake_get(self, url, **kwargs):
+        raise httpx.ConnectError("nope")
+
+    monkeypatch.setattr("httpx.Client.get", fake_get)
+    assert warn_if_models_on_cpu(expected_tier_models=["gemma-26b-a4b"]) == []
+
+
+def test_warn_if_models_on_cpu_ignores_models_not_in_tier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """gemma-26b-a4b-cpu не в наших tier'ах — не фейлим если он на CPU."""
+    payload = {
+        "data": [
+            {"id": "gemma-26b-a4b", "backend_type": "gpu"},
+            {"id": "gemma-26b-a4b-cpu", "backend_type": "cpu"},
+            {"id": "gemma-31b-cpu", "backend_type": "cpu"},
+        ],
+    }
+
+    def fake_get(self, url, **kwargs):
+        return _MockResponseJson(200, payload)
+
+    monkeypatch.setattr("httpx.Client.get", fake_get)
+    # Tier-конфиг ожидает только gemma-26b-a4b. -cpu варианты вне scope.
+    assert warn_if_models_on_cpu(expected_tier_models=["gemma-26b-a4b"]) == []

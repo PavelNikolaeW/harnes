@@ -594,6 +594,22 @@ def run_loop(
 
     from harnes import AGENT_NAME
 
+    # v1.0 #35 + router R2/R3: precheck роутера и проверка что tier-модели на GPU.
+    if not stub:
+        from harnes.llm import is_router_reachable, warn_if_models_on_cpu
+
+        if not is_router_reachable(timeout_s=2.0):
+            click.echo(
+                f"  ⚠  Router {settings.llm.api_base} не отвечает — "
+                "trajectory'ы будут падать в timeout. Используй --stub для smoke."
+            )
+        on_cpu = warn_if_models_on_cpu()
+        if on_cpu:
+            click.echo(
+                f"  ⚠  Модели на CPU вместо GPU: {', '.join(on_cpu)}. "
+                "Latency будет ×10-30 хуже. См. nvidia-smi на роутере."
+            )
+
     click.echo(
         f"{AGENT_NAME} awake (interval={interval}s, "
         f"react={'stub' if stub else 'real LLM'}, "

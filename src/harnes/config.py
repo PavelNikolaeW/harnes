@@ -65,8 +65,14 @@ class ProceduralStoreConfig(BaseModel):
 
 
 class EmbeddingsConfig(BaseModel):
+    # Граmceful fallback на fastembed реализован в llm/embeddings.py — можно
+    # выставить use_server=true заранее; агент сам переключится на сервер когда
+    # backend будет готов. См. docs/router_roadmap.md R1.
     use_server: bool = False
-    model: str = "BAAI/bge-m3"
+    # Имя как в ll-router (роутер v0.2.0 регистрирует embed-модель как 'bge-m3'
+    # без BAAI/-префикса). Для fastembed-fallback оно неподходит — fastembed
+    # упадёт на curated multilingual model.
+    model: str = "bge-m3"
 
 
 class LoggingConfig(BaseModel):
