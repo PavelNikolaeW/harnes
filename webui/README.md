@@ -97,8 +97,27 @@ approve/reject/create. Удобно при demo / для второго слуш
 ## Безопасность
 
 - В compose порт `8080` биндится на `127.0.0.1` — наружу контейнер не торчит.
-- Auth нет — это single-user research-сетап. Если будет нужно выйти за loopback,
-  добавь обратный прокси (Caddy / nginx) с basic-auth.
+- HTTP Basic Auth — опциональный. Включается env-vars:
+  ```bash
+  WEBUI_AUTH_USERNAME=admin WEBUI_AUTH_PASSWORD=$(openssl rand -hex 16)
+  ```
+  Если username пуст — auth выключен (default). Использовать когда выйдешь
+  за loopback (общий dev, reverse proxy без TLS — недопустимо).
+- Реверс-прокси (Caddy / nginx) с TLS — обязателен для production exposure.
+
+## Tailwind: CDN vs pre-built
+
+- **Dev (default)** — Tailwind через CDN (`cdn.tailwindcss.com`, JIT в браузере,
+  ~150KB JS). Удобно для итераций — никаких build-steps.
+- **Production** — pre-built `static/css/tailwind.css`, ~20KB после purge.
+  Собирается в Dockerfile через standalone CLI (`webui/tailwind/build.sh`),
+  без node_modules. `base.html` авто-переключается на pre-built если файл есть.
+
+Локально пересобрать (например после нового template):
+```bash
+./webui/tailwind/build.sh           # production minified
+./webui/tailwind/build.sh --watch   # dev watch mode
+```
 
 ## Limitations (известные, follow-ups)
 

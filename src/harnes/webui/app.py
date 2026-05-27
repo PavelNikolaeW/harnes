@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from harnes import AGENT_NAME, PROJECT_NAME, __version__
 from harnes.config import get_settings
 from harnes.telemetry import setup_logging
+from harnes.webui.auth import BasicAuthMiddleware
 from harnes.webui.config import get_webui_settings
 from harnes.webui.deps import close_stores, init_stores
 from harnes.webui.routers import (
@@ -53,6 +54,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     for key, value in state.items():
         setattr(app.state, key, value)
 
+    # Tailwind: предпочитаем pre-built /static/css/tailwind.css если он есть
+    # (production-ready). Иначе fallback на CDN (dev-comfort).
+    tailwind_css = STATIC_DIR / "css" / "tailwind.css"
+    app.state.tailwind_built = tailwind_css.exists() and tailwind_css.stat().st_size > 0
+
     log.info(
         "webui.started",
         agent=AGENT_NAME,
@@ -62,6 +68,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         journal=bool(state["journal"]),
         semantic=bool(state["semantic"]),
         world=bool(state["world"]),
+        tailwind=("prebuilt" if app.state.tailwind_built else "cdn"),
     )
     try:
         yield
@@ -84,6 +91,16 @@ def create_app() -> FastAPI:
         version=__version__,
         lifespan=lifespan,
     )
+
+    # Optional HTTP Basic Auth — включается если задан username+password.
+    if webui_cfg.auth_username and webui_cfg.auth_password:
+        app.add_middleware(
+            BasicAuthMiddleware,
+            username=webui_cfg.auth_username,
+            password=webui_cfg.auth_password,
+        )
+        log.info("webui.auth.enabled", realm="harnes-webui",
+                 username=webui_cfg.auth_username)
 
     # Mount static.
     if STATIC_DIR.exists():

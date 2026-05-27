@@ -29,3 +29,7 @@ htmlcov/
 # Docker
 .docker/
 .env
+
+# Tailwind build artifacts — собирается из webui/tailwind/build.sh
+webui/tailwind/bin/
+src/harnes/webui/static/css/tailwind.css

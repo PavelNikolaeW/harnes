@@ -11,9 +11,22 @@ from pathlib import Path
 from typing import Any
 
 from fastapi.templating import Jinja2Templates
+from starlette.requests import Request
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+
+
+def _tailwind_built(request: Request) -> bool:
+    """Глобальная переменная для base.html — есть ли pre-built tailwind.css."""
+    try:
+        return bool(getattr(request.app.state, "tailwind_built", False))
+    except Exception:
+        return False
+
+
+# Делаем доступным во всех templates через context-processor.
+templates.env.globals["tailwind_built_for"] = _tailwind_built
 
 
 # ---------- Filters ----------

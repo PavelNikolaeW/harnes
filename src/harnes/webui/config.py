@@ -35,6 +35,11 @@ class WebuiSettings(BaseSettings):
     # Путь до command-file (IPC с агентом). Пока зарезервировано для будущего.
     command_file: str = "/app/data/web_commands.jsonl"
 
+    # HTTP Basic Auth. Если username пустой — auth disabled (loopback-default).
+    # Использовать когда webui выйдет за 127.0.0.1 (reverse proxy, общий dev и т.п.).
+    auth_username: str = ""
+    auth_password: str = ""
+
 
 _settings: WebuiSettings | None = None
 

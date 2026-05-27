@@ -5,31 +5,38 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}harnes · console{% endblock %}</title>
 
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            ink:    '#1a1a1a',
-            soft:   '#555',
-            cream:  '#fdfdfb',
-            paper:  '#f3f1ec',
-            decision:'#fffaee',
-            edge:   '#d8d4cc',
-            edgex:  '#888',
-            accent: '#664433',
-            accentSoft: '#aa7788',
-            link:   '#334455',
-          },
-          fontFamily: {
-            sans: ['-apple-system','BlinkMacSystemFont','"Segoe UI"','"Helvetica Neue"','Arial','sans-serif'],
-            mono: ['"SF Mono"','Menlo','Consolas','monospace'],
+  {% if tailwind_built_for(request) %}
+    {# Production: pre-built minified CSS из webui/tailwind/build.sh #}
+    <link rel="stylesheet" href="/static/css/tailwind.css">
+  {% else %}
+    {# Dev fallback: CDN с JIT (~150KB JS). Запусти ./webui/tailwind/build.sh
+       чтобы переключиться на pre-built. #}
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              ink:    '#1a1a1a',
+              soft:   '#555',
+              cream:  '#fdfdfb',
+              paper:  '#f3f1ec',
+              decision:'#fffaee',
+              edge:   '#d8d4cc',
+              edgex:  '#888',
+              accent: '#664433',
+              accentSoft: '#aa7788',
+              link:   '#334455',
+            },
+            fontFamily: {
+              sans: ['-apple-system','BlinkMacSystemFont','"Segoe UI"','"Helvetica Neue"','Arial','sans-serif'],
+              mono: ['"SF Mono"','Menlo','Consolas','monospace'],
+            }
           }
         }
       }
-    }
-  </script>
+    </script>
+  {% endif %}
 
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
   <script src="https://unpkg.com/htmx-ext-sse@2.2.2"></script>

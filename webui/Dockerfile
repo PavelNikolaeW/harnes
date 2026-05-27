@@ -11,6 +11,7 @@ ENV PYTHONUNBUFFERED=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         build-essential \
+        curl \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -28,6 +29,11 @@ COPY src/     /app/src/
 COPY config/  /app/config/
 
 RUN uv sync --extra webui
+
+# Pre-build tailwind.css standalone CLI — никаких node_modules.
+# base.html авто-переключается с CDN на /static/css/tailwind.css если он есть.
+COPY webui/tailwind /app/webui/tailwind
+RUN /app/webui/tailwind/build.sh
 
 # Read-only volumes монтируются compose'ом: data/, skills/, config/.
 EXPOSE 8000
