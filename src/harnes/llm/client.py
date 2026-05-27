@@ -126,8 +126,9 @@ async def async_call(
 def health_check() -> bool:
     """Smoke-тест endpoint'а — короткий запрос на дефолтную модель.
 
-    Логирует ошибку и возвращает False вместо бросания исключения —
-    используется при boot'е агента (см. scripts/run_agent.py).
+    ТЯЖЁЛЫЙ check: делает реальный chat-completion. Используется при boot'е
+    агента (см. scripts/run_agent.py). Если нужен только дешёвый precheck —
+    используй `is_router_reachable()`.
     """
     settings = get_settings()
     try:
@@ -147,3 +148,60 @@ def health_check() -> bool:
             error_type=type(exc).__name__,
         )
         return False
+
+
+def is_router_reachable(
+    api_base: str | None = None,
+    timeout_s: float = 2.0,
+) -> bool:
+    """Дешёвый precheck: жив ли роутер.
+
+    Аналог `_bolt_reachable` из memory/world.py — TCP/HTTP precheck с коротким
+    таймаутом, чтобы не висеть на 60s LiteLLM-таймауте если роутер упал.
+
+    Использует:
+    1. `GET {api_base}/../health` — когда роутер реализует endpoint (см.
+       docs/router_roadmap.md R2)
+    2. Fallback на `GET {api_base}/models` — это уже существует.
+
+    Любая ошибка (ConnectError, timeout, 5xx) → False. 200 → True. 404 на
+    health → пробуем models. Логи только при изменении состояния — не флудим.
+
+    Args:
+        api_base: например "http://192.168.0.111:8000/v1". None = из settings.
+        timeout_s: общий timeout по запросу.
+
+    Returns:
+        True если роутер отвечает 200 хотя бы на один endpoint, иначе False.
+    """
+    import httpx
+
+    if api_base is None:
+        api_base = get_settings().llm.api_base
+
+    # /v1/embeddings → /v1/.., /health НЕ /v1/health. Срезаем суффикс /v1.
+    root = api_base.rstrip("/")
+    if root.endswith("/v1"):
+        root = root[:-3].rstrip("/")
+    health_url = f"{root}/health"
+    models_url = f"{api_base.rstrip('/')}/models"
+
+    with httpx.Client(timeout=timeout_s) as client:
+        # 1) GET /health
+        try:
+            r = client.get(health_url)
+            if r.status_code == 200:
+                return True
+            # 404 — endpoint ещё не реализован, проверяем /models
+        except httpx.RequestError:
+            # connection refused / timeout — пробуем второй вариант перед False
+            pass
+        except Exception:  # noqa: BLE001
+            return False
+
+        # 2) GET /v1/models (fallback)
+        try:
+            r = client.get(models_url)
+            return r.status_code == 200
+        except Exception:  # noqa: BLE001
+            return False

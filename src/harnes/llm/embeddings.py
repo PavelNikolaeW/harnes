@@ -1,18 +1,28 @@
 """Embeddings client.
 
 Primary: LiteLLM `embedding()` → отправляет в `/v1/embeddings` на ll-router.
-Fallback: fastembed + `BAAI/bge-m3` локально на CPU.
+Fallback: fastembed + `paraphrase-multilingual-mpnet-base-v2` локально на CPU.
 
-Переключается по конфигу `embeddings.use_server` (по умолчанию False, пока
-ll-router не научится embeddings).
+Переключается по конфигу `embeddings.use_server`:
+- True — пробуем сервер, при любой ошибке (404, timeout, connection) пишем
+  warning и автоматически делаем fallback на fastembed. После N подряд
+  фейлов помечаем сервер как broken и не дёргаем `broken_ttl_s` секунд —
+  чтобы не висеть на 60s LiteLLM-таймауте на каждый embed.
+- False — сразу fastembed.
+
+Это позволяет включить `use_server: true` заранее (документ
+`docs/router_roadmap.md` R1) — агент будет работать через fastembed, пока
+endpoint не появится, и сам переключится на сервер когда он заработает.
 
 Public API:
 - embed(texts) -> list[list[float]]
+- reset_server_state()  — тестовая утилита, сбрасывает broken-cache
 
-См. `agent_architecture.html` § 17.
+См. `agent_architecture.html` § 17, `docs/router_roadmap.md` R1.
 """
 from __future__ import annotations
 
+import time
 from functools import lru_cache
 from typing import Any
 
@@ -22,6 +32,21 @@ from litellm import embedding
 from harnes.config import get_settings
 
 log = structlog.get_logger()
+
+
+# ---------- Server-state cache ----------
+#
+# Если сервер ответил ошибкой — не дёргаем его _broken_ttl_s секунд, чтобы не
+# страдать от 60s LiteLLM-таймаута на каждый embed. Простой in-memory маркер,
+# сбрасывается при reset_server_state() или по TTL.
+_broken_until: float = 0.0
+_broken_ttl_s: float = 60.0
+
+
+def reset_server_state() -> None:
+    """Сбросить кеш «сервер сломан». Используется в тестах."""
+    global _broken_until
+    _broken_until = 0.0
 
 
 @lru_cache(maxsize=1)
@@ -65,16 +90,34 @@ def embed(texts: list[str]) -> list[list[float]]:
     """Embed списка текстов в векторы.
 
     Маршрутизация по `settings.embeddings.use_server`:
-    - True:  серверный endpoint через LiteLLM
-    - False: fastembed на CPU локально
+    - True:  пробуем серверный endpoint через LiteLLM; при ошибке —
+      graceful fallback на fastembed + broken-state кеш на 60s.
+    - False: сразу fastembed на CPU локально.
     """
     if not texts:
         return []
 
     settings = get_settings()
-    if settings.embeddings.use_server:
+    if not settings.embeddings.use_server:
+        return _embed_via_fastembed(texts)
+
+    # use_server=True — но сервер недавно отвечал ошибкой? Пропустить, не дёргать.
+    global _broken_until
+    if _broken_until > time.monotonic():
+        return _embed_via_fastembed(texts)
+
+    try:
         return _embed_via_server(texts)
-    return _embed_via_fastembed(texts)
+    except Exception as exc:  # noqa: BLE001 — любая ошибка → fallback
+        _broken_until = time.monotonic() + _broken_ttl_s
+        log.warning(
+            "embeddings.server.failed",
+            error=str(exc),
+            error_type=type(exc).__name__,
+            fallback="fastembed",
+            broken_for_seconds=_broken_ttl_s,
+        )
+        return _embed_via_fastembed(texts)
 
 
 def _embed_via_server(texts: list[str]) -> list[list[float]]:
